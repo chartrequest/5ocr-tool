@@ -5,6 +5,7 @@ usage() {
 	echo "        5ocr-tool login"
         echo "        5ocr-tool logs --environment preproduction|staging --container web|sidekiq|cron"
         echo "        5ocr-tool ssh --environment preproduction|staging --container web|sidekiq|cron"
+        echo "        5ocr-tool config --environment preproduction|staging --container web|sidekiq|cron"
 }
 
 do_login() {
@@ -76,6 +77,15 @@ start_ssh() {
 
 show_logs() {
 	ecs-cli logs --region ${REGION} --cluster ${CLUSTER} --task-id ${TASKID} --container-name ${CONTAINERNAME}
+}
+
+get_config() {
+	TASK_DEF=$(aws ecs describe-tasks --cluster cr-staging --tasks $TASKID |
+		jq -r '.tasks[].taskDefinitionArn')
+	CONFIG_FILE=$(aws ecs describe-task-definition --task-definition $TASK_DEF |
+		jq -r ".taskDefinition.containerDefinitions[]| select(.name==\"${CONTAINERNAME}\") | .environmentFiles[].value" |
+		cut -d":" -f6)
+	aws s3 cp s3://${CONFIG_FILE} - | cat
 }
 
 set_environment() {
@@ -181,6 +191,11 @@ case "$1" in
 		check_login
 		set_environment
 		show_logs
+	;;
+	'config')
+		check_login
+		set_environment
+		get_config
 	;;
 	*)
 		echo "No such command $1, exiting..."
