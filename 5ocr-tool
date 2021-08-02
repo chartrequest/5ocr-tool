@@ -1,0 +1,190 @@
+#!/bin/bash
+
+usage() {
+	echo "Usage:"
+	echo "        5ocr-tool login"
+        echo "        5ocr-tool logs --environment preproduction|staging --container web|sidekiq|cron"
+        echo "        5ocr-tool ssh --environment preproduction|staging --container web|sidekiq|cron"
+}
+
+do_login() {
+	saml2aws script >/dev/null || saml2aws login
+}
+
+check_requisites() {
+	if ! hash aws &>/dev/null; then
+		echo "This tool requires the aws cli command to run"
+		echo "To install it, follow the instructions at https://docs.aws.amazon.com/cli/latest/userguide/install-cliv1.html"
+		exit 1
+	fi
+	if ! hash session-manager-plugin &>/dev/null; then
+		echo "This tool requires the aws cli Session Manager Plugin"
+		echo "To install it, follow the instructions at https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html#install-plugin-verify"
+		exit 1
+	fi
+	if ! hash saml2aws &>/dev/null; then
+		echo "This tool requires the saml2aws script."
+		echo "To install it, follow the instructions at https://intranet.chartrequest.com/doku.php?id=development:howtoawskeys"
+		exit 1
+	fi
+	if ! hash ecs-cli &>/dev/null; then
+		echo "This tool requires the ecs-cli command."
+		echo "To install it, follow the instructions at https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ECS_CLI_installation.html"
+		exit 1
+	fi
+	if ! hash jq &>/dev/null; then
+		echo "This tool requires the jq command."
+		echo "Install the corresponding system package. On Ubuntu, run 'sudo apt update; sudo apt install jq'"
+		exit 1
+	fi
+}
+
+check_login() {
+	if ! aws sts get-caller-identity &>/dev/null; then
+		echo "Your current AWS Key is not valid, run '5ocr-tool login' to obtain a temporary key"
+		exit 1
+	fi
+}
+
+start_ssh() {
+	case "$ENVIRONMENT" in
+		'preproduction')
+			aws ecs execute-command \
+				--cluster ${CLUSTER} \
+				--region ${REGION} \
+				--task ${TASKID} \
+				--container ${CONTAINERNAME} \
+				--interactive \
+				--command /bin/bash
+		;;
+		'staging')
+			declare -a HOST=('ecshost1.ad.chartrequest.com' 'ecshost2.ad.chartrequest.com')
+			for i in ${HOST[@]}; do
+				CONTAINERID=$(ssh $i docker ps|grep ${CONTAINERNAME}|cut -d" " -f1)
+				if [ "x${CONTAINERID}x" != "xx" ]; then
+					echo "Containers are running on ${i}. Logging in..."
+					ssh -tt ${i} docker exec -ti ${CONTAINERID} /bin/bash
+					exit 0
+				fi
+			done
+			#we shouldnt get here
+			echo "Containers for ${ENVIRONMENT} environment are not running. Exiting..."
+			exit 1
+		;;
+	esac
+}
+
+show_logs() {
+	ecs-cli logs --region ${REGION} --cluster ${CLUSTER} --task-id ${TASKID} --container-name ${CONTAINERNAME}
+}
+
+set_environment() {
+	case "$ENVIRONMENT" in
+		'preproduction')
+			CLUSTER=preprod
+			REGION=us-east-2
+		;;
+		'staging')
+			CLUSTER=cr-staging
+			REGION=us-east-2
+		;;
+		*)
+			echo "No such environment! Exiting..."
+			exit 1
+		;;
+	esac
+
+	
+	if [ $ENVIRONMENT == 'preproduction' ]; then
+		FAMILY="-$CONTAINER"
+	fi
+	case "$CONTAINER" in
+		'web')
+			if [ $ENVIRONMENT == 'preproduction' ]; then
+				CONTAINERNAME=web
+			else
+				CONTAINERNAME=WebWorker
+			fi
+		;;
+		'cron')
+			CONTAINERNAME=CronWorker
+		;;
+		'sidekiq')
+			CONTAINERNAME=SidekiqWorker
+		;;
+		*)
+			echo "You must set web,cron or sidekiq as container family! Exiting..."
+			exit 1
+		;;
+	esac
+
+	#Get the task definition
+	TASKID=$(aws ecs list-tasks --cluster ${CLUSTER} \
+		--family 5ocr_app-${ENVIRONMENT}${FAMILY} \
+		--output text \
+		--desired-status RUNNING \
+		--region ${REGION}|tr -s " " | cut -f2|cut -d"/" -f3)
+}
+
+
+#First check if all the required utilities are present
+check_requisites
+
+#Then check if we are logged in
+eval $(saml2aws script) &>/dev/null
+
+#Parse command line options
+TEMP=$(getopt -o 'e:c:' --long 'environment:,container:' -n '5ocr-tool' -- "$@")
+
+if [ $? -ne 0 ]; then
+	echo 'Terminating...' >&2
+	exit 1
+fi
+
+eval set -- "$TEMP"
+unset TEMP
+
+while true; do
+	case "$1" in
+		'-e'|'--environment')
+			ENVIRONMENT=$2
+			shift 2
+			continue
+		;;
+		'-c'|'--container')
+			CONTAINER=$2
+			shift 2
+			continue
+		;;
+		'--')
+			shift
+			break
+		;;
+		*)
+			usage
+			exit 0
+		;;
+	esac
+done
+
+#Parse the main command
+case "$1" in
+	'login')
+		do_login
+	;;
+	'ssh')
+		check_login
+		set_environment
+		start_ssh
+	;;
+	'logs')
+		check_login
+		set_environment
+		show_logs
+	;;
+	*)
+		echo "No such command $1, exiting..."
+		exit 1
+	;;
+esac
+
