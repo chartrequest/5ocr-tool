@@ -16,6 +16,11 @@ usage() {
         echo "        5ocr-tool db:connect --environment preproduction|staging"
 }
 
+urldecode() {
+	: "${*//+/ }"
+	echo -e "${_//%/\\x}"
+}
+
 do_login() {
 	saml2aws script >/dev/null || saml2aws login
 }
@@ -99,6 +104,19 @@ get_config() {
 		jq -r ".taskDefinition.containerDefinitions[]| select(.name==\"${CONTAINERNAME}\") | .environmentFiles[].value" |
 		cut -d":" -f6)
 	aws s3 cp s3://${CONFIG_FILE} - | cat
+}
+
+connect_db() {
+	re="^postgresq?l?://([^:]*)(:[^@]*@)([a-zA-Z0-9%\._\-]*)(:?[0-9]*)(/[a-zA-Z0-9_\-]*)\??(.*)$"
+	[[ ${1} =~ ${re} ]]
+	if [ $? -eq 0 ]; then
+		export PGUSER=${BASH_REMATCH[1]}
+		export PGPASSWORD=$(echo ${BASH_REMATCH[2]} | sed -e 's/^://' -e 's/@$//')
+		export PGHOST=$(urldecode ${BASH_REMATCH[3]})
+		export PGPORT=${BASH_REMATCH[4]#:}
+		export PGDATABASE=${BASH_REMATCH[5]#/}
+		psql
+	fi
 }
 
 set_environment() {
@@ -212,7 +230,7 @@ case "$1" in
 		check_login
 		set_environment
 		eval $(get_config | grep DATABASE_URL)
-		psql ${DATABASE_URL}
+		connect_db ${DATABASE_URL}
 	;;
 	*)
 		echo "No such command $1, exiting..."
