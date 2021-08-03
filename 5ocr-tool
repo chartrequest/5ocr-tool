@@ -1,4 +1,11 @@
 #!/bin/bash
+#
+# 5ocr_tool v0.1.0
+#
+
+#Set some sane defaults
+REGION=us-east-2
+CONTAINER=web
 
 usage() {
 	echo "Usage:"
@@ -6,6 +13,7 @@ usage() {
         echo "        5ocr-tool logs --environment preproduction|staging --container web|sidekiq|cron"
         echo "        5ocr-tool ssh --environment preproduction|staging --container web|sidekiq|cron"
         echo "        5ocr-tool config --environment preproduction|staging --container web|sidekiq|cron"
+        echo "        5ocr-tool db:connect --environment preproduction|staging"
 }
 
 do_login() {
@@ -36,6 +44,11 @@ check_requisites() {
 	if ! hash jq &>/dev/null; then
 		echo "This tool requires the jq command."
 		echo "Install the corresponding system package. On Ubuntu, run 'sudo apt update; sudo apt install jq'"
+		exit 1
+	fi
+	if ! hash psql &>/dev/null; then
+		echo "This tool requires the psql command."
+		echo "Install the corresponding system package. On Ubuntu, run 'sudo apt update; sudo apt install postgresql'"
 		exit 1
 	fi
 }
@@ -80,7 +93,7 @@ show_logs() {
 }
 
 get_config() {
-	TASK_DEF=$(aws ecs describe-tasks --cluster cr-staging --tasks $TASKID |
+	TASK_DEF=$(aws ecs describe-tasks --cluster ${CLUSTER} --tasks $TASKID |
 		jq -r '.tasks[].taskDefinitionArn')
 	CONFIG_FILE=$(aws ecs describe-task-definition --task-definition $TASK_DEF |
 		jq -r ".taskDefinition.containerDefinitions[]| select(.name==\"${CONTAINERNAME}\") | .environmentFiles[].value" |
@@ -89,14 +102,12 @@ get_config() {
 }
 
 set_environment() {
-	case "$ENVIRONMENT" in
+	case "${ENVIRONMENT}" in
 		'preproduction')
 			CLUSTER=preprod
-			REGION=us-east-2
 		;;
 		'staging')
 			CLUSTER=cr-staging
-			REGION=us-east-2
 		;;
 		*)
 			echo "No such environment! Exiting..."
@@ -105,12 +116,12 @@ set_environment() {
 	esac
 
 	
-	if [ $ENVIRONMENT == 'preproduction' ]; then
-		FAMILY="-$CONTAINER"
+	if [ ${ENVIRONMENT} == 'preproduction' ]; then
+		FAMILY="-${CONTAINER}"
 	fi
-	case "$CONTAINER" in
+	case "${CONTAINER}" in
 		'web')
-			if [ $ENVIRONMENT == 'preproduction' ]; then
+			if [ ${ENVIRONMENT} == 'preproduction' ]; then
 				CONTAINERNAME=web
 			else
 				CONTAINERNAME=WebWorker
@@ -196,6 +207,12 @@ case "$1" in
 		check_login
 		set_environment
 		get_config
+	;;
+	'db:connect')
+		check_login
+		set_environment
+		eval $(get_config | grep DATABASE_URL)
+		psql ${DATABASE_URL}
 	;;
 	*)
 		echo "No such command $1, exiting..."

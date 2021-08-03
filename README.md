@@ -12,6 +12,7 @@
 * The saml2aws script. To install it, follow the instructions at (https://intranet.chartrequest.com/doku.php?id=development:howtoawskeys)
 * The ecs-cli command. To install it, follow the instructions at (https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ECS_CLI_installation.html)
 * The jq command. Install the corresponding system package. On Ubuntu, run `sudo apt update; sudo apt install jq`
+* The psql command. Install the corresponding system package. On Ubuntu, run `sudo apt update; sudo apt install postgresql`
 
 ## Installation
 
@@ -19,7 +20,7 @@ Download the 5ocr-tool file to your `/usr/local/bin` or `~/.local/bin` directory
 
 ## Usage
 
-The command currently offers the following operation modes: login, ssh, logs, config
+The command currently offers the following operation modes: login, ssh, logs, config, db:connect
 
 ### 5ocr-tool login
 
@@ -44,4 +45,9 @@ The command currently offers the following operation modes: login, ssh, logs, co
 **Syntax:** `5ocr-tool config --environment preproduction|staging --container web|sidekiq|cron`
 
 **Description:** The *config* operation show the selected container enviroment variables.
- 
+
+### 5ocr-tool db:connect 
+
+**Syntax:** `5ocr-tool db:connect --environment preproduction|staging`
+
+**Description:** The *db:connect* operation opens a connection to the environment's database server.
