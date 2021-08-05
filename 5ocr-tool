@@ -29,7 +29,7 @@ do_login() {
 		--url=https://sso.chartrequest.com/auth/realms/ChartRequest/protocol/saml/clients/amazon-aws \
 		--mfa=Auto \
 		--profile=default \
-		--skip-prompt
+		--skip-prompt >/dev/null
 	fi
 
 	saml2aws script &>/dev/null || saml2aws login --quiet
