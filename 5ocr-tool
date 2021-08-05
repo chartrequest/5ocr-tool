@@ -22,6 +22,16 @@ urldecode() {
 }
 
 do_login() {
+	#Configure saml2aws if it has not been configured before
+	if [ ! -f ~/.saml2aws ]; then
+		saml2aws configure \
+		--idp-provider=KeyCloak \
+		--url=https://sso.chartrequest.com/auth/realms/ChartRequest/protocol/saml/clients/amazon-aws \
+		--mfa=Auto \
+		--profile=default \
+		--skip-prompt
+	fi
+
 	saml2aws script &>/dev/null || saml2aws login --quiet
 }
 

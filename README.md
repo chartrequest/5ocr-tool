@@ -16,7 +16,7 @@
 
 ## Installation
 
-Download the 5ocr-tool file to your `/usr/local/bin` or `~/.local/bin` directory. Make it executable by running `chmod 755 /usr/local/bin/5ocr-tool` or `chmod 755 ~/.local/bin/5ocr-tool`
+`git clone` the 5ocr-tool repository. Enter the repository directory (`cd 5ocr-tool`) and run the `5ocr-tool-install.sh` script with **sudo**, as in `sudo ./5ocr-tool-install.sh`.
 
 ## Usage
 

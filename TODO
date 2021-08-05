@@ -1,0 +1,4 @@
+- Check permissions before executing any AWS API call
+- Fail gracefully after permission errors
+- Find out where is an external task running
+- Allow connecting to arbitrary clusters and branches
