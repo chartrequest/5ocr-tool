@@ -1,26 +1,27 @@
 #!/bin/bash
 #This tool must be run with sudo and it will help set up 5ocr-tool dependencies
 
-apt-get -q update
+apt-get -qq update
 
 install_aws() {
 	echo "Installing awscli"
-	apt-get -qy install aws
+	apt-get -qq install aws
 }
 install_jq() {
 	echo "Installing jq"
-	apt-get -qy install jq
+	apt-get -qq install jq
 }
 install_psql() {
 	echo "Installing postgresql client"
-	apt-get -qy install postgresql
+	apt-get -qq install postgresql-client
 }
 
 install_session_manager() {
 	echo "Installing the AWS CLI session manager plugin"
-	TMPDIR=`mktemp`
-	curl "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" -o ${TMPDIR}/session-manager-plugin.deb
+	TMPDIR=`mktemp -d`
+	curl -s "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" -o ${TMPDIR}/session-manager-plugin.deb
 	dpkg -i ${TMPDIR}/session-manager-plugin.deb
+	hash -r
 }
 
 pathadd() {
@@ -40,6 +41,7 @@ install_ecs-cli() {
 	echo "Installing the ecs-cli tool"
 	curl -Lo /usr/local/bin/ecs-cli https://amazon-ecs-cli.s3.amazonaws.com/ecs-cli-linux-amd64-latest
 	chmod 755 /usr/local/bin/ecs-cli
+	hash -r
 }
 
 
@@ -62,6 +64,6 @@ if ! hash psql &>/dev/null; then
 	install_psql
 fi
 if ! hash 5ocr_tool &>/dev/null; then
-	cp 5ocr-tool /usr/local/bin
+	cp -u 5ocr-tool /usr/local/bin
 	chmod 755 /usr/local/bin/5ocr-tool
 fi

@@ -87,12 +87,14 @@ start_ssh() {
 				--command /bin/bash
 		;;
 		'staging')
+			#Build the remote username based on the identity we assumed at login time
+			u="$(aws sts get-caller-identity|jq -r '.Arn'| sed 's/\(.*\)\/\([^\/]*\)$/\2/')@ad.chartrequest.com"
 			declare -a HOST=('ecshost1.ad.chartrequest.com' 'ecshost2.ad.chartrequest.com')
 			for i in ${HOST[@]}; do
-				CONTAINERID=$(ssh $i docker ps|grep ${CONTAINERNAME}|cut -d" " -f1)
+				CONTAINERID=$(ssh -l ${u} ${i} docker ps|grep ${CONTAINERNAME}|cut -d" " -f1)
 				if [ "x${CONTAINERID}x" != "xx" ]; then
 					echo "Containers are running on ${i}. Logging in..."
-					ssh -tt ${i} docker exec -ti ${CONTAINERID} /bin/bash
+					ssh -tt -l ${u} ${i} docker exec -ti ${CONTAINERID} /bin/bash
 					exit 0
 				fi
 			done
