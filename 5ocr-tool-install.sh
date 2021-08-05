@@ -46,24 +46,24 @@ install_ecs-cli() {
 
 
 if ! hash aws &>/dev/null; then
-	install_aws
+	install_aws || exit 1
 fi
 if ! hash session-manager-plugin &>/dev/null; then
-	install_session_manager
+	install_session_manager || exit 1
 fi
 if ! hash saml2aws &>/dev/null; then
-	install_saml2aws
+	install_saml2aws || exit 1
 fi
 if ! hash ecs-cli &>/dev/null; then
-	install_ecs-cli
+	install_ecs-cli || exit 1
 fi
 if ! hash jq &>/dev/null; then
-	install_jq
+	install_jq || exit 1
 fi
 if ! hash psql &>/dev/null; then
-	install_psql
+	install_psql || exit 1
 fi
 if ! hash 5ocr_tool &>/dev/null; then
-	cp -u 5ocr-tool /usr/local/bin
+	cp -u 5ocr-tool /usr/local/bin || exit 1
 	chmod 755 /usr/local/bin/5ocr-tool
 fi
