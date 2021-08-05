@@ -22,7 +22,7 @@ urldecode() {
 }
 
 do_login() {
-	saml2aws script >/dev/null || saml2aws login
+	saml2aws script >/dev/null || saml2aws login --quiet
 }
 
 check_requisites() {
