@@ -5,7 +5,7 @@ apt-get -qq update
 
 install_aws() {
 	echo "Installing awscli"
-	apt-get -qq install aws
+	apt-get -qq install awscli
 }
 install_jq() {
 	echo "Installing jq"
@@ -32,14 +32,14 @@ pathadd() {
 
 install_saml2aws() {
 	CURRENT_VERSION=$(curl -Ls https://api.github.com/repos/Versent/saml2aws/releases/latest | grep 'tag_name' | cut -d'v' -f2 | cut -d'"' -f1)
-	wget -c https://github.com/Versent/saml2aws/releases/download/v${CURRENT_VERSION}/saml2aws_${CURRENT_VERSION}_linux_amd64.tar.gz -O - | tar -xzv -C /usr/local/bin
+	wget -q -c https://github.com/Versent/saml2aws/releases/download/v${CURRENT_VERSION}/saml2aws_${CURRENT_VERSION}_linux_amd64.tar.gz -O - | tar -xzv -C /usr/local/bin
 	chmod u+x /usr/local/bin/saml2aws
 	hash -r
 }
 
 install_ecs-cli() {
 	echo "Installing the ecs-cli tool"
-	curl -Lo /usr/local/bin/ecs-cli https://amazon-ecs-cli.s3.amazonaws.com/ecs-cli-linux-amd64-latest
+	curl -s -Lo /usr/local/bin/ecs-cli https://amazon-ecs-cli.s3.amazonaws.com/ecs-cli-linux-amd64-latest
 	chmod 755 /usr/local/bin/ecs-cli
 	hash -r
 }
@@ -67,3 +67,6 @@ if ! hash 5ocr_tool &>/dev/null; then
 	cp -u 5ocr-tool /usr/local/bin || exit 1
 	chmod 755 /usr/local/bin/5ocr-tool
 fi
+#Generate a machine ID to avoid dbus errors
+systemd-machine-id-setup
+echo "All set! You may now run '5ocr-tool login' to obtain your temporary keys"
