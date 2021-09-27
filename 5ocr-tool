@@ -32,7 +32,15 @@ do_login() {
 		--skip-prompt >/dev/null
 	fi
 
-	saml2aws script &>/dev/null || saml2aws login --quiet
+	saml2aws script &>/dev/null || saml2aws login --quiet --idp-account="default" --disable-keychain
+	if [ $? -ne 0 ]; then
+		echo "Username/password error, please try again."
+		echo "If needed, you may reset your credentials on https://sso.chartrequest.com"
+		exit 1
+	else
+		echo "Login successful, your temporary credentials have been stored"
+		echo "in the ~/.aws/credentials file"
+	fi
 }
 
 check_requisites() {
@@ -185,7 +193,7 @@ check_requisites
 eval $(saml2aws script) &>/dev/null
 
 #Parse command line options
-TEMP=$(getopt -o 'e:c:' --long 'environment:,container:' -n '5ocr-tool' -- "$@")
+TEMP=$(getopt -o 'e:c:h' --long 'environment:,container:,help' -n '5ocr-tool' -- "$@")
 
 if [ $? -ne 0 ]; then
 	echo 'Terminating...' >&2
@@ -206,6 +214,11 @@ while true; do
 			CONTAINER=$2
 			shift 2
 			continue
+		;;
+		'-h'|'--help')
+			shift 1
+			usage
+			exit 0
 		;;
 		'--')
 			shift
@@ -245,7 +258,7 @@ case "$1" in
 		connect_db ${DATABASE_URL}
 	;;
 	*)
-		echo "No such command $1, exiting..."
+		usage
 		exit 1
 	;;
 esac
