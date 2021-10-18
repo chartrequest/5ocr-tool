@@ -32,7 +32,7 @@ do_login() {
 		--skip-prompt >/dev/null
 	fi
 
-	saml2aws script &>/dev/null || saml2aws login --quiet --idp-account="default" --disable-keychain
+	saml2aws script &>/dev/null || saml2aws login --idp-account="default" --disable-keychain
 	if [ $? -ne 0 ]; then
 		echo "Username/password error, please try again."
 		echo "If needed, you may reset your credentials on https://sso.chartrequest.com"
