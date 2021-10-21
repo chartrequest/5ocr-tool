@@ -83,7 +83,34 @@ check_login() {
 	fi
 }
 
+get_container_instance_arn() {
+	aws ecs describe-tasks \
+		--cluster ${CLUSTER} \
+		--region ${REGION} \
+		--tasks $1 |
+	jq -r '.tasks[].containerInstanceArn' || exit 1
+}
+
+get_ssm_instance_id() {
+	aws ecs describe-container-instances \
+		--region ${REGION} \
+		--cluster ${CLUSTER} \
+		--container-instances $1 |
+	jq -r '.containerInstances[].ec2InstanceId' || exit 1
+}
+
+get_ssm_instance_address() {
+	aws ssm describe-instance-information \
+		--filters "Key=InstanceIds,Values=$1" | 
+	jq -r '.InstanceInformationList[].IPAddress' || exit 1
+}
+
+get_caller_identity() {
+	aws sts get-caller-identity|jq -r '.Arn' || exit 1
+}
+
 start_ssh() {
+
 	case "$ENVIRONMENT" in
 		'preproduction')
 			aws ecs execute-command \
@@ -96,19 +123,20 @@ start_ssh() {
 		;;
 		'staging')
 			#Build the remote username based on the identity we assumed at login time
-			u="$(aws sts get-caller-identity|jq -r '.Arn'| sed 's/\(.*\)\/\([^\/]*\)$/\2/')@ad.chartrequest.com"
-			declare -a HOST=('ecshost1.ad.chartrequest.com' 'ecshost2.ad.chartrequest.com')
-			for i in ${HOST[@]}; do
-				CONTAINERID=$(ssh -l ${u} ${i} docker ps|grep ${CONTAINERNAME}|cut -d" " -f1)
-				if [ "x${CONTAINERID}x" != "xx" ]; then
-					echo "Containers are running on ${i}. Logging in..."
-					ssh -tt -l ${u} ${i} docker exec -ti ${CONTAINERID} /bin/bash
-					exit 0
-				fi
-			done
-			#we shouldnt get here
-			echo "Containers for ${ENVIRONMENT} environment are not running. Exiting..."
-			exit 1
+			u="$(get_caller_identity | sed 's/\(.*\)\/\([^\/]*\)$/\2/')@ad.chartrequest.com"
+			# Get the container instance ARN
+			CONTAINERINSTANCE=$(get_container_instance_arn ${TASKID})
+			# Get the instance ID where the task is running
+			INSTANCEID=$(get_ssm_instance_id ${CONTAINERINSTANCE})
+			# Get the instance IP Address
+			INSTANCEADDRESS=$(get_ssm_instance_address ${INSTANCEID})
+			#Get the container name
+			CONTAINERID=$(
+				ssh -q -tt -l ${u} ${INSTANCEADDRESS} curl -s http://localhost:51678/v1/tasks | \
+				jq -r ".Tasks[].Containers[]| select (.Name==\"${CONTAINERNAME}\").DockerName" \
+			)
+			echo "Containers are running on ${INSTANCEADDRESS}. Logging in..."
+                        ssh -tt -l ${u} ${INSTANCEADDRESS} docker exec -ti ${CONTAINERID} /bin/bash
 		;;
 	esac
 }
