@@ -142,7 +142,7 @@ start_ssh() {
 }
 
 show_logs() {
-	ecs-cli logs --region ${REGION} --cluster ${CLUSTER} --task-id ${TASKID} --container-name ${CONTAINERNAME}
+	ecs-cli logs --region ${REGION} --cluster ${CLUSTER} --task-id ${TID} --container-name ${CONTAINERNAME}
 }
 
 get_config() {
@@ -210,6 +210,8 @@ set_environment() {
 		--family 5ocr_app-${ENVIRONMENT}${FAMILY} \
 		--desired-status RUNNING \
 		--region ${REGION} | jq -r '.taskArns[]')
+	#Short version of the TASKID
+	TID=$(echo ${TASKID}|cut -d"/" -f3)
 }
 
 
