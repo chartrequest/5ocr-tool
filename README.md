@@ -30,9 +30,9 @@ The command currently offers the following operation modes: login, ssh, logs, co
 
 ### 5ocr-tool logs
 
-**Syntax:** `5ocr-tool logs --environment preproduction|staging --container web|sidekiq|cron`
+**Syntax:** `5ocr-tool logs --environment preproduction|staging --container web|sidekiq|cron [-f|--follow]`
 
-**Description:** The *logs* operation shows the selected container logs
+**Description:** The *logs* operation shows the selected container logs. The optional flag `-f` or `--follow` will display logs continuosly as they are generated
 
 ### 5ocr-tool ssh
  
