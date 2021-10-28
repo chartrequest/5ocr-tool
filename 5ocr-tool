@@ -78,8 +78,7 @@ check_requisites() {
 
 check_login() {
 	if ! aws sts get-caller-identity &>/dev/null; then
-		echo "Your current AWS Key is not valid, run '5ocr-tool login' to obtain a temporary key"
-		exit 1
+		do_login
 	fi
 }
 
