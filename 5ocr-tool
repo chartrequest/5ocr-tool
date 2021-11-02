@@ -150,7 +150,11 @@ get_config() {
 	CONFIG_FILE=$(aws ecs describe-task-definition --task-definition $TASK_DEF |
 		jq -r ".taskDefinition.containerDefinitions[]| select(.name==\"${CONTAINERNAME}\") | .environmentFiles[].value" |
 		cut -d":" -f6)
-	aws s3 cp s3://${CONFIG_FILE} - | cat
+	aws s3 cp s3://${CONFIG_FILE} ${1} >/dev/null
+	if [ $? -ne 0 ]; then
+		echo "Cannot read the configuration file, perhaps you don't have the required permissions"
+		exit 1
+	fi
 }
 
 connect_db() {
@@ -280,9 +284,12 @@ case "$1" in
 		show_logs
 	;;
 	'config')
+		TMPFILE=$(mktemp)
 		check_login
 		set_environment
-		get_config
+		get_config ${TMPFILE}
+		cat ${TMPFILE}
+		rm -f ${TMPFILE}
 	;;
 	'db:connect')
 		check_login
