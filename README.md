@@ -44,7 +44,17 @@ The command currently offers the following operation modes: login, ssh, logs, co
 
 **Syntax:** `5ocr-tool config --environment preproduction|staging --container web|sidekiq|cron`
 
-**Description:** The *config* operation show the selected container enviroment variables.
+**Description:** The *config* operation shows the selected container enviroment variables.
+
+### 5ocr-tool config:set
+
+**Syntax:** `5ocr-tool config:set --environment preproduction|staging --container web|sidekiq|cron [VAR1=VAL1] [VAR2=] [...]`
+
+**Description:** The `config:set` operation is used to modify the selected container enviroment variables.
+To modify or to add an environment variable add its new value on the config:set command line and to delete an enviroment variable, set this variable to an empty value.
+It is possible to set or delete more than one variable with a single `config:set` command.
+
+**Example:** `5ocr-tool config:set --environment staging WEB_CONCURRENCY=2 PG_PORT= SECURITY_KEY=xyz`
 
 ### 5ocr-tool db:connect 
 

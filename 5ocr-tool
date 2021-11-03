@@ -1,11 +1,19 @@
 #!/bin/bash
 #
-# 5ocr_tool v0.1.0
+# 5ocr_tool v0.2.0
 #
 
 #Set some sane defaults
 REGION=us-east-2
 CONTAINER=web
+
+#Other global variables used in this script:
+#CLUSTER: The ECS cluster name
+#CONTAINERNAME: The name of the container
+#TASKID: The ECS Task ID
+#TID: Sort version of the TASKID
+#TASK_DEF: The Task definition ARN
+#CONFIG_FILE: The Task configuration file S3 URL
 
 usage() {
 	echo "Usage:"
@@ -145,15 +153,43 @@ show_logs() {
 }
 
 get_config() {
-	TASK_DEF=$(aws ecs describe-tasks --cluster ${CLUSTER} --tasks $TASKID |
-		jq -r '.tasks[].taskDefinitionArn')
-	CONFIG_FILE=$(aws ecs describe-task-definition --task-definition $TASK_DEF |
-		jq -r ".taskDefinition.containerDefinitions[]| select(.name==\"${CONTAINERNAME}\") | .environmentFiles[].value" |
-		cut -d":" -f6)
 	aws s3 cp s3://${CONFIG_FILE} ${1} >/dev/null
 	if [ $? -ne 0 ]; then
 		echo "Cannot read the configuration file, perhaps you don't have the required permissions"
 		exit 1
+	fi
+}
+
+set_config() {
+	local configfile=${1}
+	shift 2
+	while true; do
+		[[ ${1} =~ ^([-_a-zA-Z0-9]*)=(.*)$ ]] && set_option ${configfile} ${BASH_REMATCH[1]} ${BASH_REMATCH[2]}
+		shift 1 || break
+	done
+	aws s3 cp ${configfile} s3://${CONFIG_FILE} >/dev/null
+	if [ $? -ne 0 ]; then
+		echo "Cannot write the configuration file, perhaps you don't have the required permissions"
+		exit 1
+	fi
+}
+
+set_option() {
+	local configfile=${1}
+	local variable=${2}
+	local value=${3}
+	if $(grep -q ${variable} ${configfile}); then
+		#The file contains the variable
+		if [ "x${value}x" != "xx" ]; then
+			#The variable is not empty, so we update it
+			sed -i 's/\('${variable}'\)=\(.*\)/\1='${value}'/' ${configfile}
+		else
+			#we delete the variable as it is empty
+			sed -i '/^'${variable}'/d' ${configfile}
+		fi
+	else
+		#The file doesn't contain the variable so we add it
+		echo ${variable}=${value} >> ${configfile}
 	fi
 }
 
@@ -208,13 +244,18 @@ set_environment() {
 		;;
 	esac
 
-	#Get the task definition
+	#Get the task id
 	TASKID=$(aws ecs list-tasks --cluster ${CLUSTER} \
 		--family 5ocr_app-${ENVIRONMENT}${FAMILY} \
 		--desired-status RUNNING \
-		--region ${REGION} | jq -r '.taskArns[]')
+		--region ${REGION} | jq -r '.taskArns[]'| head -1)
 	#Short version of the TASKID
 	TID=$(echo ${TASKID}|cut -d"/" -f3)
+	TASK_DEF=$(aws ecs describe-tasks --cluster ${CLUSTER} --tasks $TASKID |
+		jq -r '.tasks[].taskDefinitionArn')
+	CONFIG_FILE=$(aws ecs describe-task-definition --task-definition $TASK_DEF |
+		jq -r ".taskDefinition.containerDefinitions[]| select(.name==\"${CONTAINERNAME}\") | .environmentFiles[].value" |
+		cut -d":" -f6)
 }
 
 
@@ -284,12 +325,20 @@ case "$1" in
 		show_logs
 	;;
 	'config')
-		TMPFILE=$(mktemp)
+		tmpfile=$(mktemp)
 		check_login
 		set_environment
-		get_config ${TMPFILE}
-		cat ${TMPFILE}
-		rm -f ${TMPFILE}
+		get_config ${tmpfile}
+		cat ${tmpfile}
+		rm -f ${tmpfile}
+	;;
+	'config:set')
+		tmpfile=$(mktemp)
+		check_login
+		set_environment
+		get_config ${tmpfile}
+		set_config ${tmpfile} "$@"
+		rm -f ${tmpfile}
 	;;
 	'db:connect')
 		check_login
