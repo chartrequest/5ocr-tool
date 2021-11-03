@@ -9,19 +9,20 @@ CONTAINER=web
 
 #Other global variables used in this script:
 #CLUSTER: The ECS cluster name
+#SERVICE: The full service definition
 #CONTAINERNAME: The name of the container
 #TASKID: The ECS Task ID
 #TID: Sort version of the TASKID
-#TASK_DEF: The Task definition ARN
+#TASK: The full Task definition
 #CONFIG_FILE: The Task configuration file S3 URL
 
 usage() {
 	echo "Usage:"
 	echo "        5ocr-tool login"
-        echo "        5ocr-tool logs --environment preproduction|staging --container web|sidekiq|cron [-f|--follow]"
-        echo "        5ocr-tool ssh --environment preproduction|staging --container web|sidekiq|cron"
-        echo "        5ocr-tool config --environment preproduction|staging --container web|sidekiq|cron"
-        echo "        5ocr-tool db:connect --environment preproduction|staging"
+        echo "        5ocr-tool logs --environment <environment name> --container web|sidekiq|cron [-f|--follow]"
+        echo "        5ocr-tool ssh --environment <environment name> --container web|sidekiq|cron"
+        echo "        5ocr-tool config --environment <environment name> --container web|sidekiq|cron"
+        echo "        5ocr-tool db:connect --environment <environment name>"
 }
 
 urldecode() {
@@ -117,6 +118,10 @@ get_caller_identity() {
 }
 
 start_ssh() {
+	#From a remote access point of view we can have two environment types
+	#EC2/FARGATE environments can be accessed with aws ecs execute-command
+	#External environments must be accessed with ssh + docker exec
+	#We can look at the environment's task definition to get the environment's type
 
 	case "$ENVIRONMENT" in
 		'preproduction')
@@ -211,15 +216,24 @@ set_environment() {
 		'preproduction')
 			CLUSTER=preprod
 		;;
-		'staging')
-			CLUSTER=cr-staging
-		;;
 		*)
-			echo "No such environment! Exiting..."
-			exit 1
+			CLUSTER=cr-${ENVIRONMENT}
 		;;
 	esac
 
+	cluster_def=$(aws ecs describe-cluster --cluster ${CLUSTER} --region ${REGION})
+	if [ $? -ne 0 ]; then
+		echo "No ${ENVIRONMENT} environment configured on ECS"
+		exit 1
+	fi
+
+	SERVICE_ARN=$(aws ecs list-services --cluster ${CLUSTER} --region ${REGION}| jq -r '.serviceArns[]')
+	if [ $? -ne 0 ]; then
+		echo "Cluster ${CLUSTER} has no running services, create a service from the AWS console"
+		exit 1
+	fi
+	SERVICE=$(aws ecs describe-services --services ${SERVICE_ARN} --cluster ${CLUSTER} --region ${REGION})
+	local deployment_id=$(echo $SERVICE | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id')
 	
 	if [ ${ENVIRONMENT} == 'preproduction' ]; then
 		FAMILY="-${CONTAINER}"
@@ -246,14 +260,14 @@ set_environment() {
 
 	#Get the task id
 	TASKID=$(aws ecs list-tasks --cluster ${CLUSTER} \
-		--family 5ocr_app-${ENVIRONMENT}${FAMILY} \
+		--started-by ${deployment_id} \
 		--desired-status RUNNING \
 		--region ${REGION} | jq -r '.taskArns[]'| head -1)
 	#Short version of the TASKID
 	TID=$(echo ${TASKID}|cut -d"/" -f3)
-	TASK_DEF=$(aws ecs describe-tasks --cluster ${CLUSTER} --tasks $TASKID |
-		jq -r '.tasks[].taskDefinitionArn')
-	CONFIG_FILE=$(aws ecs describe-task-definition --task-definition $TASK_DEF |
+	local task_def=$(echo $SERVICE | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .taskDefinition')
+	TASK=$(aws ecs describe-task-definition --task-definition ${task_def})
+	CONFIG_FILE=$(echo ${TASK} |
 		jq -r ".taskDefinition.containerDefinitions[]| select(.name==\"${CONTAINERNAME}\") | .environmentFiles[].value" |
 		cut -d":" -f6)
 }
@@ -341,9 +355,11 @@ case "$1" in
 		rm -f ${tmpfile}
 	;;
 	'db:connect')
+		tmpfile=$(mktemp)
 		check_login
 		set_environment
-		eval $(get_config | grep DATABASE_URL)
+		get_config ${tmpfile}
+		eval $(cat ${tmpfile}| grep DATABASE_URL)
 		connect_db ${DATABASE_URL}
 	;;
 	*)
