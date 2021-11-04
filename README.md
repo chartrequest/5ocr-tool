@@ -20,7 +20,7 @@
 
 ## Usage
 
-The command currently offers the following operation modes: login, ssh, logs, config, db:connect
+The command currently offers the following operation modes: login, ssh, logs, config, config:set, db:connect
 
 ### 5ocr-tool login
 
@@ -30,27 +30,27 @@ The command currently offers the following operation modes: login, ssh, logs, co
 
 ### 5ocr-tool logs
 
-**Syntax:** `5ocr-tool logs --environment preproduction|staging --container web|sidekiq|cron [-f|--follow]`
+**Syntax:** `5ocr-tool logs --environment <environment name> --container web|sidekiq|cron [-f|--follow]`
 
 **Description:** The *logs* operation shows the selected container logs. The optional flag `-f` or `--follow` will display logs continuosly as they are generated
 
 ### 5ocr-tool ssh
  
-**Syntax:** `5ocr-tool ssh --environment preproduction|staging --container web|sidekiq|cron`
+**Syntax:** `5ocr-tool ssh --environment <environment name> --container web|sidekiq|cron`
 
 **Description:** The *ssh* operations opens a shell inside the selected container. To exit the container, type `exit`.
 
 ### 5ocr-tool config
 
-**Syntax:** `5ocr-tool config --environment preproduction|staging --container web|sidekiq|cron`
+**Syntax:** `5ocr-tool config --environment <environment name>`
 
-**Description:** The *config* operation shows the selected container enviroment variables.
+**Description:** The *config* operation shows the selected enviroment variables.
 
 ### 5ocr-tool config:set
 
-**Syntax:** `5ocr-tool config:set --environment preproduction|staging --container web|sidekiq|cron [VAR1=VAL1] [VAR2=] [...]`
+**Syntax:** `5ocr-tool config:set --environment <environment name> [VAR1=VAL1] [VAR2=] [...]`
 
-**Description:** The `config:set` operation is used to modify the selected container enviroment variables.
+**Description:** The `config:set` operation is used to modify the selected enviroment variables.
 To modify or to add an environment variable add its new value on the config:set command line and to delete an enviroment variable, set this variable to an empty value.
 It is possible to set or delete more than one variable with a single `config:set` command.
 
@@ -58,6 +58,6 @@ It is possible to set or delete more than one variable with a single `config:set
 
 ### 5ocr-tool db:connect 
 
-**Syntax:** `5ocr-tool db:connect --environment preproduction|staging`
+**Syntax:** `5ocr-tool db:connect --environment <environment name>`
 
 **Description:** The *db:connect* operation opens a connection to the environment's database server.

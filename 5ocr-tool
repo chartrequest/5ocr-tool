@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 5ocr_tool v0.2.0
+# 5ocr_tool v0.3.0
 #
 
 #Set some sane defaults
@@ -9,12 +9,13 @@ CONTAINER=web
 
 #Other global variables used in this script:
 #CLUSTER: The ECS cluster name
-#SERVICE: The full service definition
+#SERVICE: ECS Service definition service definitions
 #CONTAINERNAME: The name of the container
 #TASKID: The ECS Task ID
-#TID: Sort version of the TASKID
-#TASK: The full Task definition
+#TID: Short version of the TASKID
+#TASKDEF: The full Task definition
 #CONFIG_FILE: The Task configuration file S3 URL
+#CALLER: The Caller information
 
 usage() {
 	echo "Usage:"
@@ -86,9 +87,7 @@ check_requisites() {
 }
 
 check_login() {
-	if ! aws sts get-caller-identity &>/dev/null; then
-		do_login
-	fi
+	CALLER=$(aws sts get-caller-identity) || do_login
 }
 
 get_container_instance_arn() {
@@ -114,7 +113,7 @@ get_ssm_instance_address() {
 }
 
 get_caller_identity() {
-	aws sts get-caller-identity|jq -r '.Arn' || exit 1
+	echo $CALLER |jq -r '.Arn' || exit 1
 }
 
 start_ssh() {
@@ -123,17 +122,9 @@ start_ssh() {
 	#External environments must be accessed with ssh + docker exec
 	#We can look at the environment's task definition to get the environment's type
 
-	case "$ENVIRONMENT" in
-		'preproduction')
-			aws ecs execute-command \
-				--cluster ${CLUSTER} \
-				--region ${REGION} \
-				--task ${TASKID} \
-				--container ${CONTAINERNAME} \
-				--interactive \
-				--command /bin/bash
-		;;
-		'staging')
+	local launch_type=$(echo $SERVICE| jq -r '.services[].launchType')
+	case "$launch_type" in
+		'EXTERNAL')
 			#Build the remote username based on the identity we assumed at login time
 			u="$(get_caller_identity | sed 's/\(.*\)\/\([^\/]*\)$/\2/')@ad.chartrequest.com"
 			# Get the container instance ARN
@@ -149,6 +140,15 @@ start_ssh() {
 			)
 			echo "Containers are running on ${INSTANCEADDRESS}. Logging in..."
                         ssh -tt -l ${u} ${INSTANCEADDRESS} docker exec -ti ${CONTAINERID} /bin/bash
+		;;
+		'FARGATE'|'EC2')
+			aws ecs execute-command \
+				--cluster ${CLUSTER} \
+				--region ${REGION} \
+				--task ${TASKID} \
+				--container ${CONTAINERNAME} \
+				--interactive \
+				--command /bin/bash
 		;;
 	esac
 }
@@ -212,6 +212,9 @@ connect_db() {
 }
 
 set_environment() {
+	local service_arn services deployment_id index task_def_arn servicename
+	declare -a service_arns services
+
 	case "${ENVIRONMENT}" in
 		'preproduction')
 			CLUSTER=preprod
@@ -221,19 +224,15 @@ set_environment() {
 		;;
 	esac
 
-	cluster_def=$(aws ecs describe-cluster --cluster ${CLUSTER} --region ${REGION})
-	if [ $? -ne 0 ]; then
-		echo "No ${ENVIRONMENT} environment configured on ECS"
+	service_arns=($(aws ecs list-services --cluster ${CLUSTER} --region ${REGION} 2>/dev/null| jq -r '.serviceArns[]'))
+	if [ -z "${service_arns[0]}" ]; then 
+		echo "Cluster ${CLUSTER} has no running services or you don't have permission to access them"
 		exit 1
 	fi
 
-	SERVICE_ARN=$(aws ecs list-services --cluster ${CLUSTER} --region ${REGION}| jq -r '.serviceArns[]')
-	if [ $? -ne 0 ]; then
-		echo "Cluster ${CLUSTER} has no running services, create a service from the AWS console"
-		exit 1
-	fi
-	SERVICE=$(aws ecs describe-services --services ${SERVICE_ARN} --cluster ${CLUSTER} --region ${REGION})
-	local deployment_id=$(echo $SERVICE | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id')
+	for i in "${service_arns[@]}"; do
+		services+=("$(aws ecs describe-services --services ${i} --cluster ${CLUSTER} --region ${REGION})")
+	done
 	
 	if [ ${ENVIRONMENT} == 'preproduction' ]; then
 		FAMILY="-${CONTAINER}"
@@ -257,17 +256,33 @@ set_environment() {
 			exit 1
 		;;
 	esac
+	
+	#Get the task id corresponding to the desired container
+	if [ ${CONTAINERNAME} = "web" ]; then
+		servicename=WebWorker
+	else
+		servicename=${CONTAINERNAME}
+	fi
 
-	#Get the task id
+	index=0
+	if [ -n "${services[1]}" ]; then
+		#more than one service, they are named after their container
+		while true; do
+			[ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "${servicename}" ] && break
+			((index+=1))
+		done
+	fi
+	SERVICE=${services[$index]}
+	deployment_id=$(echo ${SERVICE} | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id')
 	TASKID=$(aws ecs list-tasks --cluster ${CLUSTER} \
 		--started-by ${deployment_id} \
 		--desired-status RUNNING \
 		--region ${REGION} | jq -r '.taskArns[]'| head -1)
 	#Short version of the TASKID
 	TID=$(echo ${TASKID}|cut -d"/" -f3)
-	local task_def=$(echo $SERVICE | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .taskDefinition')
-	TASK=$(aws ecs describe-task-definition --task-definition ${task_def})
-	CONFIG_FILE=$(echo ${TASK} |
+	task_def_arn=$(echo ${SERVICE} | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .taskDefinition')
+	TASKDEF=$(aws ecs describe-task-definition --task-definition ${task_def_arn})
+	CONFIG_FILE=$(echo ${TASKDEF} |
 		jq -r ".taskDefinition.containerDefinitions[]| select(.name==\"${CONTAINERNAME}\") | .environmentFiles[].value" |
 		cut -d":" -f6)
 }
@@ -339,27 +354,28 @@ case "$1" in
 		show_logs
 	;;
 	'config')
-		tmpfile=$(mktemp)
 		check_login
 		set_environment
+		tmpfile=$(mktemp)
 		get_config ${tmpfile}
 		cat ${tmpfile}
 		rm -f ${tmpfile}
 	;;
 	'config:set')
-		tmpfile=$(mktemp)
 		check_login
 		set_environment
+		tmpfile=$(mktemp)
 		get_config ${tmpfile}
 		set_config ${tmpfile} "$@"
 		rm -f ${tmpfile}
 	;;
 	'db:connect')
-		tmpfile=$(mktemp)
 		check_login
 		set_environment
+		tmpfile=$(mktemp)
 		get_config ${tmpfile}
-		eval $(cat ${tmpfile}| grep DATABASE_URL)
+		eval $(grep DATABASE_URL ${tmpfile})
+		rm -f ${tmpfile}
 		connect_db ${DATABASE_URL}
 	;;
 	*)
