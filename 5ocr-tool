@@ -189,7 +189,8 @@ set_option() {
 		#The file contains the variable
 		if [ "x${value}x" != "xx" ]; then
 			#The variable is not empty, so we update it
-			sed -i 's/\('${variable}'\)=\(.*\)/\1='${value}'/' ${configfile}
+			escaped_value=$(echo ${value}|sed 's@/@\\/@g')
+			sed -i 's/\('${variable}'\)=\(.*\)/\1='${escaped_value}'/' ${configfile}
 		else
 			#we delete the variable as it is empty
 			sed -i '/^'${variable}'/d' ${configfile}
