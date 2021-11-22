@@ -22,7 +22,8 @@ usage() {
 	echo "        5ocr-tool login"
         echo "        5ocr-tool logs --environment <environment name> --container web|sidekiq|cron [-f|--follow]"
         echo "        5ocr-tool ssh --environment <environment name> --container web|sidekiq|cron"
-        echo "        5ocr-tool config --environment <environment name> --container web|sidekiq|cron"
+        echo "        5ocr-tool config --environment <environment name>"
+        echo "        5ocr-tool config:set --environment <environment name> [VAR1=VAL1] [VAR2=] [...]"
         echo "        5ocr-tool db:connect --environment <environment name>"
 }
 
@@ -50,6 +51,7 @@ do_login() {
 	else
 		echo "Login successful, your temporary credentials have been stored"
 		echo "in the ~/.aws/credentials file"
+		CALLER=$(aws sts get-caller-identity)
 	fi
 }
 
@@ -219,6 +221,9 @@ set_environment() {
 		'preproduction')
 			CLUSTER=preprod
 		;;
+		staging|testing)
+			CLUSTER=cr-do-bangalore
+		;;
 		*)
 			CLUSTER=cr-${ENVIRONMENT}
 		;;
@@ -268,6 +273,7 @@ set_environment() {
 	if [ -n "${services[1]}" ]; then
 		#more than one service, they are named after their container
 		while true; do
+			[ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "cr-${ENVIRONMENT}" ] && break
 			[ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "${servicename}" ] && break
 			((index+=1))
 		done
