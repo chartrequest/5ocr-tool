@@ -110,6 +110,7 @@ get_ssm_instance_id() {
 
 get_ssm_instance_address() {
 	aws ssm describe-instance-information \
+		--region ${REGION} \
 		--filters "Key=InstanceIds,Values=$1" | 
 	jq -r '.InstanceInformationList[].IPAddress' || exit 1
 }
