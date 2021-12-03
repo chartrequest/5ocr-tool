@@ -139,7 +139,11 @@ start_ssh() {
 			#Get the container name
 			CONTAINERID=$(
 				ssh -q -tt -l ${u} ${INSTANCEADDRESS} curl -s http://localhost:51678/v1/tasks | \
-				jq -r ".Tasks[] | select (.KnownStatus==\"RUNNING\") | .Containers[] | select (.Name==\"${CONTAINERNAME}\").DockerName" \
+				jq -r ".Tasks[] | \
+					select (.KnownStatus==\"RUNNING\") | \
+					select (.Arn==\"${TASKID}\" ) | \
+					.Containers[] | \
+					select (.Name==\"${CONTAINERNAME}\").DockerName" \
 			)
 			echo "Containers are running on ${INSTANCEADDRESS}. Logging in..."
                         ssh -tt -l ${u} ${INSTANCEADDRESS} docker exec -ti ${CONTAINERID} /bin/bash
