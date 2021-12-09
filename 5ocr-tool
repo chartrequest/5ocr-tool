@@ -9,7 +9,7 @@ CONTAINER=web
 
 #Other global variables used in this script:
 #CLUSTER: The ECS cluster name
-#SERVICE: ECS Service definition service definitions
+#SERVICE: ECS Service definition 
 #CONTAINERNAME: The name of the container
 #TASKID: The ECS Task ID
 #TID: Short version of the TASKID
@@ -25,6 +25,7 @@ usage() {
         echo "        5ocr-tool config --environment <environment name>"
         echo "        5ocr-tool config:set --environment <environment name> [VAR1=VAL1] [VAR2=] [...]"
         echo "        5ocr-tool db:connect --environment <environment name>"
+        echo "        5ocr-tool restart --environment <environment name>"
 }
 
 urldecode() {
@@ -219,6 +220,22 @@ connect_db() {
 	fi
 }
 
+app_restart() {
+	service_name=$(echo ${SERVICE} | jq -r ".services[].serviceName")
+	aws ecs update-service --region ${REGION} --cluster ${CLUSTER} --service ${service_name} --force-new-deployment >/dev/null
+	timeout 1200 aws ecs wait services-stable --region ${REGION} --cluster ${CLUSTER} --service ${service_name}
+	if [ $? -ne 0 ]; then
+		echo "Deployment failed! Logs are shown below:"
+		failed_deployment_id=$(aws ecs describe-services --services ${service_name} --cluster ${CLUSTER} --region ${REGION} | \
+			jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id'
+		)
+ 		failed_task_id=$(aws ecs list-tasks --cluster ${CLUSTER} --started-by ${failed_deployment_id} --region ${REGION} | \
+			jq -r '.taskArns[]' | cut -d"/" -f3
+		)
+ 		ecs-cli logs --task-id ${failed_task_id} --cluster ${CLUSTER} --region ${REGION}
+	fi
+}
+
 set_environment() {
 	local service_arn services deployment_id index task_def_arn servicename
 	declare -a service_arns services
@@ -380,6 +397,7 @@ case "$1" in
 		get_config ${tmpfile}
 		set_config ${tmpfile} "$@"
 		rm -f ${tmpfile}
+		app_restart
 	;;
 	'db:connect')
 		check_login
@@ -389,6 +407,11 @@ case "$1" in
 		eval $(grep DATABASE_URL ${tmpfile})
 		rm -f ${tmpfile}
 		connect_db ${DATABASE_URL}
+	;;
+	'restart')
+		check_login
+		set_environment
+		app_restart
 	;;
 	*)
 		usage
