@@ -3,6 +3,14 @@
 
 apt-get -qq update
 
+install_curl() {
+	echo "Installing curl"
+	apt-get -qq install curl
+}
+install_curl() {
+	echo "Installing wget"
+	apt-get -qq install wget
+}
 install_aws() {
 	echo "Installing awscli"
 	apt-get -qq install awscli
@@ -19,7 +27,8 @@ install_psql() {
 install_session_manager() {
 	echo "Installing the AWS CLI session manager plugin"
 	TMPDIR=`mktemp -d`
-	curl -s "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" -o ${TMPDIR}/session-manager-plugin.deb
+	curl -s "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" \
+		-o ${TMPDIR}/session-manager-plugin.deb
 	dpkg -i ${TMPDIR}/session-manager-plugin.deb
 	hash -r
 }
@@ -31,8 +40,12 @@ pathadd() {
 }
 
 install_saml2aws() {
-	CURRENT_VERSION=$(curl -Ls https://api.github.com/repos/Versent/saml2aws/releases/latest | grep 'tag_name' | cut -d'v' -f2 | cut -d'"' -f1)
-	wget -q -c https://github.com/Versent/saml2aws/releases/download/v${CURRENT_VERSION}/saml2aws_${CURRENT_VERSION}_linux_amd64.tar.gz -O - | tar -xzv -C /usr/local/bin
+	CURRENT_VERSION=$(curl -Ls https://api.github.com/repos/Versent/saml2aws/releases/latest | \
+		grep 'tag_name' | cut -d'v' -f2 | cut -d'"' -f1
+	)
+	wget -q -c \
+		https://github.com/Versent/saml2aws/releases/download/v${CURRENT_VERSION}/saml2aws_${CURRENT_VERSION}_linux_amd64.tar.gz -O - | 
+		tar -xzv -C /usr/local/bin
 	chmod u+x /usr/local/bin/saml2aws
 	hash -r
 }
@@ -45,6 +58,12 @@ install_ecs-cli() {
 }
 
 
+if ! hash curl &>/dev/null; then
+	install_curl || exit 1
+fi
+if ! hash wget &>/dev/null; then
+	install_wget || exit 1
+fi
 if ! hash aws &>/dev/null; then
 	install_aws || exit 1
 fi
