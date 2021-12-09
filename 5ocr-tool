@@ -247,7 +247,7 @@ app_restart() {
 
 set_environment() {
 	local service_arn deployment_id index task_def_arn servicename
-	declare -a service_arns
+	declare -a cluster_service_arns
 	declare -a -g services
 
 	case "${ENVIRONMENT}" in
@@ -262,13 +262,13 @@ set_environment() {
 		;;
 	esac
 
-	service_arns=($(aws ecs list-services --cluster ${CLUSTER} --region ${REGION} 2>/dev/null| jq -r '.serviceArns[]'))
-	if [ -z "${service_arns[0]}" ]; then 
+	cluster_service_arns=($(aws ecs list-services --cluster ${CLUSTER} --region ${REGION} 2>/dev/null| jq -r '.serviceArns[]'))
+	if [ -z "${cluster_service_arns[0]}" ]; then 
 		echo "Cluster ${CLUSTER} has no running services or you don't have permission to access them"
 		exit 1
 	fi
 
-	for i in "${service_arns[@]}"; do
+	for i in "${cluster_service_arns[@]}"; do
 		services+=("$(aws ecs describe-services --services ${i} --cluster ${CLUSTER} --region ${REGION})")
 	done
 	
@@ -306,7 +306,14 @@ set_environment() {
 	if [ -n "${services[1]}" ]; then
 		#more than one service, they are named after their container
 		while true; do
-			[ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "cr-${ENVIRONMENT}" ] && break
+			if [ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "cr-${ENVIRONMENT}" ]; then
+				#We leave in the services[] array only the required service
+				temp=${services[$index]}
+				services=()
+				services[0]=${temp}
+				index=0
+				break
+			fi
 			[ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "${servicename}" ] && break
 			((index+=1))
 		done
