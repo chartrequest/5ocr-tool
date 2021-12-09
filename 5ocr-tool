@@ -10,6 +10,7 @@ CONTAINER=web
 #Other global variables used in this script:
 #CLUSTER: The ECS cluster name
 #SERVICE: ECS Service definition 
+#services[]: An array containing all the services definitions, useful in case of multi-service apps
 #CONTAINERNAME: The name of the container
 #TASKID: The ECS Task ID
 #TID: Short version of the TASKID
@@ -221,25 +222,33 @@ connect_db() {
 }
 
 app_restart() {
-	service_name=$(echo ${SERVICE} | jq -r ".services[].serviceName")
-	aws ecs update-service --region ${REGION} --cluster ${CLUSTER} --service ${service_name} --force-new-deployment >/dev/null
-	echo "Restarting the app, we will wait up to 20 minutes for it to succeed"
-	timeout 1200 aws ecs wait services-stable --region ${REGION} --cluster ${CLUSTER} --service ${service_name}
-	if [ $? -ne 0 ]; then
-		echo "Deployment failed! Logs are shown below:"
-		failed_deployment_id=$(aws ecs describe-services --services ${service_name} --cluster ${CLUSTER} --region ${REGION} | \
-			jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id'
-		)
- 		failed_task_id=$(aws ecs list-tasks --cluster ${CLUSTER} --started-by ${failed_deployment_id} --region ${REGION} | \
-			jq -r '.taskArns[]' | cut -d"/" -f3
-		)
- 		ecs-cli logs --task-id ${failed_task_id} --cluster ${CLUSTER} --region ${REGION}
-	fi
+	index=0
+	while true; do
+		app_service=${services[$index]}
+		if [ -z "${app_service}" ]; then break; fi
+		service_name=$(echo ${app_service} | jq -r ".services[].serviceName")
+		aws ecs update-service --region ${REGION} --cluster ${CLUSTER} --service ${service_name} --force-new-deployment >/dev/null
+		echo "Restarting service ${service_name}, we will wait up to 20 minutes for it to succeed"
+		timeout 1200 aws ecs wait services-stable --region ${REGION} --cluster ${CLUSTER} --service ${service_name}
+		if [ $? -ne 0 ]; then
+			echo "Deployment failed! Logs are shown below:"
+			failed_deployment_id=$(aws ecs describe-services --services ${service_name} --cluster ${CLUSTER} --region ${REGION} | \
+				jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id'
+			)
+	 		failed_task_id=$(aws ecs list-tasks --cluster ${CLUSTER} --started-by ${failed_deployment_id} --region ${REGION} | \
+				jq -r '.taskArns[]' | cut -d"/" -f3
+			)
+	 		ecs-cli logs --task-id ${failed_task_id} --cluster ${CLUSTER} --region ${REGION}
+		fi
+		((index+=1))
+	done
+
 }
 
 set_environment() {
-	local service_arn services deployment_id index task_def_arn servicename
-	declare -a service_arns services
+	local service_arn deployment_id index task_def_arn servicename
+	declare -a service_arns
+	declare -a -g services
 
 	case "${ENVIRONMENT}" in
 		'preproduction')
