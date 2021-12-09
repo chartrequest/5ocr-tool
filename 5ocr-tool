@@ -223,6 +223,7 @@ connect_db() {
 app_restart() {
 	service_name=$(echo ${SERVICE} | jq -r ".services[].serviceName")
 	aws ecs update-service --region ${REGION} --cluster ${CLUSTER} --service ${service_name} --force-new-deployment >/dev/null
+	echo "Restarting the app, we will wait up to 20 minutes for it to succeed"
 	timeout 1200 aws ecs wait services-stable --region ${REGION} --cluster ${CLUSTER} --service ${service_name}
 	if [ $? -ne 0 ]; then
 		echo "Deployment failed! Logs are shown below:"
