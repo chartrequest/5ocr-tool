@@ -23,6 +23,10 @@ install_psql() {
 	echo "Installing postgresql client"
 	apt-get -qq install postgresql-client
 }
+install_git-remote-codecommit() {
+	echo "Installing git-remote-codecommit"
+	sudo -u $SUDO_USER pip install git-remote-codecommit
+}
 
 install_session_manager() {
 	echo "Installing the AWS CLI session manager plugin"
@@ -81,6 +85,9 @@ if ! hash jq &>/dev/null; then
 fi
 if ! hash psql &>/dev/null; then
 	install_psql || exit 1
+fi
+if ! sudo -u $SUDO_USER pip list 2>&1 | grep -q git-remote-codecommit; then
+	install_git-remote-codecommit || exit 1
 fi
 if ! hash 5ocr_tool &>/dev/null; then
 	cp -u 5ocr-tool /usr/local/bin || exit 1
