@@ -12,7 +12,13 @@ install_curl() {
 }
 install_aws() {
 	echo "Installing awscli"
-	${pkg_cmd} -qq install awscli
+	tmpdir=`mktemp -d`
+	pushd ${tmpdir}
+	curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+	unzip awscliv2.zip
+	./aws/install
+	popd
+	rm -rf ${tmpdir}
 }
 install_jq() {
 	echo "Installing jq"
@@ -85,6 +91,9 @@ if ! hash wget &>/dev/null; then
 	install_wget || exit 1
 fi
 if ! hash aws &>/dev/null; then
+	install_aws || exit 1
+fi
+if hash aws && [ $(aws --version|cut -d"/" -f2 |cut -d"." -f1) -eq 1 ] ; then
 	install_aws || exit 1
 fi
 if ! hash session-manager-plugin &>/dev/null; then
