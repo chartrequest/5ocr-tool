@@ -93,6 +93,17 @@ fi
 if ! hash saml2aws &>/dev/null; then
 	install_saml2aws || exit 1
 fi
+#Configure saml2aws if it has not been configured before
+#if [ ! -f ~/.saml2aws ]; then
+	saml2aws configure \
+		--idp-provider=KeyCloak \
+		--url=https://sso.chartrequest.com/auth/realms/ChartRequest/protocol/saml/clients/amazon-aws \
+		--mfa=Auto \
+		--profile=default \
+		--session-duration=43200 \
+		--skip-prompt >/dev/null
+#fi
+#saml2aws configure --profile=default --session-duration=43200
 if ! hash ecs-cli &>/dev/null; then
 	install_ecs-cli || exit 1
 fi

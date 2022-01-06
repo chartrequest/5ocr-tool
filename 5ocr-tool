@@ -35,16 +35,6 @@ urldecode() {
 }
 
 do_login() {
-	#Configure saml2aws if it has not been configured before
-	if [ ! -f ~/.saml2aws ]; then
-		saml2aws configure \
-		--idp-provider=KeyCloak \
-		--url=https://sso.chartrequest.com/auth/realms/ChartRequest/protocol/saml/clients/amazon-aws \
-		--mfa=Auto \
-		--profile=default \
-		--skip-prompt >/dev/null
-	fi
-
 	saml2aws script &>/dev/null || saml2aws login --idp-account="default" --disable-keychain
 	if [ $? -ne 0 ]; then
 		echo "Username/password error, please try again."
