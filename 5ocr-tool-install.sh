@@ -6,9 +6,13 @@ install_curl() {
 	echo "Installing curl"
 	${pkg_cmd} -qq install curl
 }
-install_curl() {
+install_wget() {
 	echo "Installing wget"
 	${pkg_cmd} -qq install wget
+}
+install_unzip() {
+	echo "Installing unzip"
+	${pkg_cmd} -qq install unzip
 }
 install_aws() {
 	echo "Installing awscli"
@@ -30,7 +34,7 @@ install_psql() {
 }
 install_git-remote-codecommit() {
 	echo "Installing git-remote-codecommit"
-	sudo -u $SUDO_USER pip install git-remote-codecommit
+	sudo -u ${SUDO_USER} ${pip_cmd} install --user git-remote-codecommit
 }
 
 install_session_manager() {
@@ -70,9 +74,10 @@ install_ecs-cli() {
 	hash -r
 }
 
+export PATH=/usr/local/bin:${PATH}
 #Check the os type
 . /etc/os-release
-if [ $ID_LIKE = "debian" ]; then
+if [ $(echo ${ID_LIKE}|cut -d" " -f1) = "debian" ]; then
 	pkg_cmd=apt-get
 	${pkg_cmd} -qq update
 	session_mgr_pkg="https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb"
@@ -83,28 +88,37 @@ else
 	system=redhat
 fi
 
+if command -v pip3 &>/dev/null; then
+	pip_cmd=pip3
+else
+	pip_cmd=pip
+fi
 
-if ! hash curl &>/dev/null; then
+if ! command -v curl &>/dev/null; then
 	install_curl || exit 1
 fi
-if ! hash wget &>/dev/null; then
+if ! command -v wget &>/dev/null; then
 	install_wget || exit 1
 fi
-if ! hash aws &>/dev/null; then
+if ! command -v unzip &>/dev/null; then
+	install_unzip || exit 1
+fi
+if ! command -v aws &>/dev/null; then
 	install_aws || exit 1
 fi
-if hash aws && [ $(aws --version|cut -d"/" -f2 |cut -d"." -f1) -eq 1 ] ; then
+if command -v aws && [ $(aws --version|cut -d"/" -f2 |cut -d"." -f1) -eq 1 ] ; then
 	install_aws || exit 1
 fi
-if ! hash session-manager-plugin &>/dev/null; then
+if ! command -v session-manager-plugin &>/dev/null; then
 	install_session_manager || exit 1
 fi
-if ! hash saml2aws &>/dev/null; then
+if ! command -v saml2aws &>/dev/null; then
 	install_saml2aws || exit 1
 fi
 
 #Configure saml2aws if it has not been configured before
-sudo -u ${SUDO_USER} saml2aws configure \
+saml2aws_cmd=$(which saml2aws)
+sudo -u ${SUDO_USER} ${saml2aws_cmd} configure \
 	--idp-provider=KeyCloak \
 	--url=https://sso.chartrequest.com/auth/realms/ChartRequest/protocol/saml/clients/amazon-aws \
 	--mfa=Auto \
@@ -112,20 +126,20 @@ sudo -u ${SUDO_USER} saml2aws configure \
 	--session-duration=43200 \
 	--skip-prompt >/dev/null
 
-if ! hash ecs-cli &>/dev/null; then
+if ! command -v ecs-cli &>/dev/null; then
 	install_ecs-cli || exit 1
 fi
-if ! hash jq &>/dev/null; then
+if ! command -v jq &>/dev/null; then
 	install_jq || exit 1
 fi
-if ! hash psql &>/dev/null; then
+if ! command -v psql &>/dev/null; then
 	install_psql || exit 1
 fi
-if ! sudo -u $SUDO_USER pip list 2>&1 | grep -q git-remote-codecommit; then
+if ! sudo -u $SUDO_USER ${pip_cmd} list 2>&1 | grep -q git-remote-codecommit; then
 	install_git-remote-codecommit || exit 1
 fi
-if ! hash 5ocr_tool &>/dev/null; then
-	cp -u 5ocr-tool /usr/local/bin || exit 1
+if ! command -v 5ocr_tool &>/dev/null; then
+	cp -u $(dirname ${0})/5ocr-tool /usr/local/bin || exit 1
 	chmod 755 /usr/local/bin/5ocr-tool
 fi
 
