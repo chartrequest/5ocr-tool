@@ -40,11 +40,12 @@ install_git-remote-codecommit() {
 install_session_manager() {
 	echo "Installing the AWS CLI session manager plugin"
 	tmpdir=`mktemp -d`
-	curl -s ${session_mgr_pkg} -o ${tmpdir}/session-manager-plugin
 	if [ ${system} = "debian" ]; then
+		curl -s ${session_mgr_pkg} -o ${tmpdir}/session-manager-plugin
 		dpkg -i ${tmpdir}/session-manager-plugin
 	else
-		yum -qy localinstall ${tmpdir}/session-manager-plugin
+		curl -s ${session_mgr_pkg} -o ${tmpdir}/session-manager-plugin.rpm
+		${pkg_cmd} -qy localinstall ${tmpdir}/session-manager-plugin.rpm
 	fi
 	rm -rf ${tmpdir}
 	hash -r
