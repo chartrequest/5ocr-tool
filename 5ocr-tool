@@ -1,11 +1,7 @@
 #!/bin/bash
 #
-# 5ocr_tool v0.3.0
+# 5ocr_tool v0.4.0
 #
-
-#Set some sane defaults
-REGION=us-east-2
-CONTAINER=web
 
 #Other global variables used in this script:
 #CLUSTER: The ECS cluster name
@@ -317,7 +313,7 @@ set_environment() {
 	#Short version of the TASKID
 	TID=$(echo ${TASKID}|cut -d"/" -f3)
 	task_def_arn=$(echo ${SERVICE} | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .taskDefinition')
-	TASKDEF=$(aws ecs describe-task-definition --task-definition ${task_def_arn})
+	TASKDEF=$(aws ecs describe-task-definition --task-definition ${task_def_arn} --region ${REGION})
 	CONFIG_FILE=$(echo ${TASKDEF} |
 		jq -r ".taskDefinition.containerDefinitions[]| select(.name==\"${CONTAINERNAME}\") | .environmentFiles[].value" |
 		cut -d":" -f6)
@@ -373,6 +369,14 @@ while true; do
 		;;
 	esac
 done
+
+#Set some sane defaults
+if [ ${ENVIRONMENT} = "production" ]; then
+	REGION=us-east-1
+else
+	REGION=us-east-2
+fi
+CONTAINER=web
 
 #Parse the main command
 case "$1" in
