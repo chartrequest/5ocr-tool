@@ -67,3 +67,15 @@ It is possible to set or delete more than one variable with a single `config:set
 **Syntax:** `5ocr-tool restart --environment <environment name>`
 
 **Description:** The *restart* operation restarts an enviroment and waits for up to 20 minutes for it to succeed.
+
+### 5ocr-tool version
+
+**Syntax:** `5ocr-tool -v`
+
+**Description:** Prints 5ocr-tool's version and exits
+
+### 5ocr-tool help
+
+**Syntax:** `5ocr-tool -h`
+
+**Description:** Prints a short help screen and exits

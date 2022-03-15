@@ -1,7 +1,9 @@
 #!/bin/bash
 #
-# 5ocr_tool v0.4.0
+# 5ocr_tool v0.5.0
 #
+
+version=0.5.0
 
 #Other global variables used in this script:
 #CLUSTER: The ECS cluster name
@@ -23,6 +25,12 @@ usage() {
         echo "        5ocr-tool config:set --environment <environment name> [VAR1=VAL1] [VAR2=] [...]"
         echo "        5ocr-tool db:connect --environment <environment name>"
         echo "        5ocr-tool restart --environment <environment name>"
+        echo "        5ocr-tool [-v|--version]"
+        echo "        5ocr-tool [-h|--help]"
+}
+
+version() {
+	echo 5ocr-tool version ${version}
 }
 
 urldecode() {
@@ -258,12 +266,12 @@ set_environment() {
 		services+=("$(aws ecs describe-services --services ${i} --cluster ${CLUSTER} --region ${REGION})")
 	done
 	
-	if [ ${ENVIRONMENT} == 'preproduction' ]; then
+	if [ ${ENVIRONMENT} == 'preproduction' -o ${ENVIRONMENT} == 'production' ]; then
 		FAMILY="-${CONTAINER}"
 	fi
 	case "${CONTAINER}" in
 		'web')
-			if [ ${ENVIRONMENT} == 'preproduction' ]; then
+			if [ ${ENVIRONMENT} == 'preproduction' -o ${ENVIRONMENT} == 'production' ]; then
 				CONTAINERNAME=web
 			else
 				CONTAINERNAME=WebWorker
@@ -327,7 +335,7 @@ check_requisites
 eval $(saml2aws script) &>/dev/null
 
 #Parse command line options
-TEMP=$(getopt -o 'e:c:h:f' --long 'environment:,container:,help,follow' -n '5ocr-tool' -- "$@")
+TEMP=$(getopt -o 'e:c:hfv' --long 'environment:,container:,help,follow,version' -n '5ocr-tool' -- "$@")
 
 if [ $? -ne 0 ]; then
 	echo 'Terminating...' >&2
@@ -357,6 +365,11 @@ while true; do
 		'-h'|'--help')
 			shift 1
 			usage
+			exit 0
+		;;
+		'-v'|'--version')
+			shift 1
+			version
 			exit 0
 		;;
 		'--')
