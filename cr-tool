@@ -19,6 +19,8 @@ ecs_config_file=~/.cr-tool/cr-configuration.json
 #ecs_config: json hash containing the ECS clusters configuration
 #homeaccount: AWS main account identifier
 
+declare -g CLUSTER SERVICE CONTAINERNAME TASKID TID TASKDEF CONFIG_FILE CALLER ecs_config homeaccount SERVICENAME
+
 usage() {
   echo "Usage:"
   echo "  cr-tool login"
@@ -137,31 +139,7 @@ start_ssh() {
   #External environments must be accessed with ssh + docker exec
   #We can look at the environment's task definition to get the environment's type
 
-  if [ "${CONTAINERNAME}" = "" ]; then
-    echo "You must specify a container name with the '--container <container name>' option"
-    exit 1
-  fi
-
-  conts=( $(get_app_containers) )
-
-  if ! containsElement "${CONTAINERNAME}" "${conts[@]}"; then
-    echo "Container ${CONTAINERNAME} doesn't exist"
-    echo "Run 'cr-tool app:container --app <app name> --env <environment name> --service <service name>' to obtain a list of available containers"
-    exit 1
-  fi 
-
-  CLUSTER=$(get_app_cluster)
-  REGION=$(get_app_region)
-
-  SERVICE=$(aws ecs describe-services --region ${REGION} --cluster ${CLUSTER} --service ${SERVICENAME})
-
-  deployment_id=$(echo ${SERVICE} | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id')
-  TASKID=$(aws ecs list-tasks --cluster ${CLUSTER} \
-    --started-by ${deployment_id} \
-    --desired-status RUNNING \
-    --region ${REGION} | jq -r '.taskArns[]'| head -1)
-  #Short version of the TASKID
-  TID=$(echo ${TASKID}|cut -d"/" -f3)
+  set_environment
 
   local launch_type=$(echo $SERVICE| jq -r '.services[].launchType')
 
@@ -177,29 +155,30 @@ start_ssh() {
       INSTANCEADDRESS=$(get_ssm_instance_address ${INSTANCEID})
       #Get the container name
       CONTAINERID=$(
-  ssh -q -tt -l ${u} ${INSTANCEADDRESS} curl -s http://localhost:51678/v1/tasks | \
-  jq -r --arg CONTAINERNAME ${CONTAINERNAME} --arg TASKID ${TASKID} '.Tasks[] | 
-    select (.KnownStatus == "RUNNING") | 
-    select (.Arn == $TASKID ) | 
-    .Containers[] | 
-    select (.Name == $CONTAINERNAME).DockerName' \
+        ssh -q -tt -l ${u} ${INSTANCEADDRESS} curl -s http://localhost:51678/v1/tasks | \
+          jq -r --arg CONTAINERNAME ${CONTAINERNAME} --arg TASKID ${TASKID} '
+            .Tasks[] | select (.KnownStatus == "RUNNING") | select (.Arn == $TASKID ) | 
+            .Containers[] | select (.Name == $CONTAINERNAME).DockerName' \
       )
       echo "Containers are running on ${INSTANCEADDRESS}. Logging in..."
       ssh -tt -l ${u} ${INSTANCEADDRESS} docker exec -ti ${CONTAINERID} /bin/bash
     ;;
     'FARGATE'|'EC2')
       aws ecs execute-command \
-  --cluster ${CLUSTER} \
-  --region ${REGION} \
-  --task ${TASKID} \
-  --container ${CONTAINERNAME} \
-  --interactive \
-  --command /bin/bash
+        --cluster ${CLUSTER} \
+        --region ${REGION} \
+        --task ${TASKID} \
+        --container ${CONTAINERNAME} \
+        --interactive \
+        --command /bin/bash
     ;;
   esac
 }
 
 show_logs() {
+  CLUSTER=$(get_app_cluster)
+  REGION=$(get_app_region)
+
   ecs-cli logs --region ${REGION} --cluster ${CLUSTER} --task-id ${TID} --container-name ${CONTAINERNAME} ${FOLLOW}
 }
 
@@ -283,36 +262,53 @@ app_restart() {
 }
 
 set_environment() {
-  local service_arn deployment_id index task_def_arn servicename servs s
+  local service_arn deployment_id index task_def_arn servicename servs s conts
   declare -a cluster_service_arns
   declare -a -g services
 
   CLUSTER=$(get_app_cluster)
   REGION=$(get_app_region)
+
   servs=( $(get_app_services) )
 
-  for s in "${servs[@]}"; do
-    cluster_service_arns+=($(aws ecs describe-service --cluster ${CLUSTER} --region ${REGION} --service ${s} 2>/dev/null| jq -r '.serviceArns[]'))
-    services+=("$(aws ecs describe-services --services ${s} --cluster ${CLUSTER} --region ${REGION})")
-  done
-
-  index=0
-  if [ -n "${services[1]}" ]; then
-    #more than one service, they are named after their container
-    while true; do
-      if [ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "cr-${ENVIRONMENT}" ]; then
-  #We leave in the services[] array only the required service
-  temp=${services[$index]}
-  services=()
-  services[0]=${temp}
-  index=0
-  break
-      fi
-      [ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "${servicename}" ] && break
-      ((index+=1))
-    done
+  if [ ${#servs[@]} -gt 1 -a "${SERVICENAME}" = "" ]; then
+    echo "This app has more than one available service"
+    echo "Available services are"
+    echo ${servs[@]}
+    echo "You must specify a service name with the '--service <service name>' option"
+    exit 1
+  else
+    SERVICENAME=${servs[0]}
   fi
-  SERVICE=${services[$index]}
+
+  conts=( $(get_app_containers) )
+
+  if [ ${#conts[@]} -gt 1 -a "${CONTAINERNAME}" = "" ]; then
+    echo "This app has more than one available container"
+    echo "Available containers are:"
+    echo ${conts[@]}
+    echo "You must specify a container name with the '--container <container name>' option"
+    exit 1
+  #else
+  #  CONTAINERNAME=${conts[0]}
+  fi
+
+  if ! containsElement "${CONTAINERNAME}" "${conts[@]}"; then
+    echo "Container ${CONTAINERNAME} doesn't exist"
+    echo "Run 'cr-tool app:container --app <app name> --env <environment name> --service <service name>' to obtain a list of available containers"
+    exit 1
+  fi 
+
+  SERVICE=$(aws ecs describe-services --region ${REGION} --cluster ${CLUSTER} --service ${SERVICENAME})
+
+  deployment_id=$(echo ${SERVICE} | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id')
+  TASKID=$(aws ecs list-tasks --cluster ${CLUSTER} \
+    --started-by ${deployment_id} \
+    --desired-status RUNNING \
+    --region ${REGION} | jq -r '.taskArns[]'| head -1)
+  #Short version of the TASKID
+  TID=$(echo ${TASKID}|cut -d"/" -f3)
+
   deployment_id=$(echo ${SERVICE} | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id')
   TASKID=$(aws ecs list-tasks --cluster ${CLUSTER} \
     --started-by ${deployment_id} \
@@ -323,7 +319,9 @@ set_environment() {
   task_def_arn=$(echo ${SERVICE} | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .taskDefinition')
   TASKDEF=$(aws ecs describe-task-definition --task-definition ${task_def_arn} --region ${REGION})
   CONFIG_FILE=$(echo ${TASKDEF} |
-    jq -r ".taskDefinition.containerDefinitions[]| select(.name==\"${CONTAINERNAME}\") | .environmentFiles[].value" |
+    jq -r --args CONTAINERNAME ${CONTAINERNAME} '
+      .taskDefinition.containerDefinitions[]| select( .name == $CONTAINERNAME ) | 
+      .environmentFiles[].value' |
     cut -d":" -f6)
 }
 
@@ -423,12 +421,17 @@ get_app_services() {
 get_app_containers() {
   local tdef
 
-  if [ "${SERVICENAME}" = "" ]; then
+  servs=( $(get_app_services) )
+
+  if [ ${#servs[@]} -gt 1 -a "${SERVICENAME}" = "" ]; then
+    echo "This app has more than one available service"
+    echo "Available services are"
+    echo ${servs[@]}
     echo "You must specify a service name with the '--service <service name>' option"
     exit 1
+  else
+    SERVICENAME=${servs[0]}
   fi
-
-  servs=( $(get_app_services) )
 
   if ! containsElement "${SERVICENAME}" "${servs[@]}"; then
     echo "Service ${SERVICENAME} doesn't exist"
