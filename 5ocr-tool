@@ -266,12 +266,12 @@ set_environment() {
 		services+=("$(aws ecs describe-services --services ${i} --cluster ${CLUSTER} --region ${REGION})")
 	done
 	
-	if [ ${ENVIRONMENT} == 'preproduction' -o ${ENVIRONMENT} == 'production' ]; then
+	if [ ${ENVIRONMENT} = 'preproduction' -o ${ENVIRONMENT} = 'production' ]; then
 		FAMILY="-${CONTAINER}"
 	fi
 	case "${CONTAINER}" in
 		'web')
-			if [ ${ENVIRONMENT} == 'preproduction' -o ${ENVIRONMENT} == 'production' ]; then
+			if [ ${ENVIRONMENT} = 'preproduction' -o ${ENVIRONMENT} = 'production' ]; then
 				CONTAINERNAME=web
 			else
 				CONTAINERNAME=WebWorker
@@ -384,7 +384,7 @@ while true; do
 done
 
 #Set some sane defaults
-if [ ${ENVIRONMENT} = "production" ]; then
+if [ ${ENVIRONMENT} = 'production' ]; then
 	REGION=us-east-1
 else
 	REGION=us-east-2

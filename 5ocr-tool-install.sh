@@ -2,6 +2,11 @@
 #This tool must be run with sudo and it will help set up 5ocr-tool dependencies
 
 
+install_pip() {
+	echo "Installing pip"
+	${pkg_cmd} -qq install python-pip
+	pip_cmd=pip
+}
 install_curl() {
 	echo "Installing curl"
 	${pkg_cmd} -qq install curl
@@ -91,8 +96,10 @@ fi
 
 if command -v pip3 &>/dev/null; then
 	pip_cmd=pip3
-else
+elif command -v pip &>/dev/null; then
 	pip_cmd=pip
+else
+	install_pip || exit 1
 fi
 
 if ! command -v curl &>/dev/null; then
