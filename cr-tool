@@ -1,9 +1,10 @@
 #!/bin/bash
 #
-# 5ocr_tool v0.5.0
+# cr_tool v0.1.0
 #
 
-version=0.5.0
+version=0.1.0
+ecs_config_file=~/.cr-tool/cr-configuration.json
 
 #Other global variables used in this script:
 #CLUSTER: The ECS cluster name
@@ -15,318 +16,442 @@ version=0.5.0
 #TASKDEF: The full Task definition
 #CONFIG_FILE: The Task configuration file S3 URL
 #CALLER: The Caller information
+#ecs_config: json hash containing the ECS clusters configuration
+#homeaccount: AWS main account identifier
 
 usage() {
-	echo "Usage:"
-	echo "        5ocr-tool login"
-        echo "        5ocr-tool logs --environment <environment name> --container web|sidekiq|cron [-f|--follow]"
-        echo "        5ocr-tool ssh --environment <environment name> --container web|sidekiq|cron"
-        echo "        5ocr-tool config --environment <environment name>"
-        echo "        5ocr-tool config:set --environment <environment name> [VAR1=VAL1] [VAR2=] [...]"
-        echo "        5ocr-tool db:connect --environment <environment name>"
-        echo "        5ocr-tool restart --environment <environment name>"
-        echo "        5ocr-tool [-v|--version]"
-        echo "        5ocr-tool [-h|--help]"
+  echo "Usage:"
+  echo "  cr-tool login"
+  echo "  cr-tool app:list"
+  echo "  cr-tool app:environments --app <app name>"
+  echo "  cr-tool app:cluster --app <app name> --env <environment name>"
+  echo "  cr-tool app:region --app <app name> --env <environment name>"
+  echo "  cr-tool app:services --app <app name> --env <environment name>"
+  echo "  cr-tool app:containers --app <app name> --env <environment name> --service <service name>"
+  echo "  cr-tool logs --environment <environment name> --container web|sidekiq|cron [-f|--follow]"
+  echo "  cr-tool ssh --app <app name> --env <env name> --service <service name> --container <container name>"
+  echo "  cr-tool config --environment <environment name>"
+  echo "  cr-tool config:set --environment <environment name> [VAR1=VAL1] [VAR2=] [...]"
+  echo "  cr-tool db:connect --environment <environment name>"
+  echo "  cr-tool restart --environment <environment name>"
+  echo "  cr-tool [-v|--version]"
+  echo "  cr-tool [-h|--help]"
 }
 
 version() {
-	echo 5ocr-tool version ${version}
+  echo cr-tool version ${version}
 }
 
 urldecode() {
-	: "${*//+/ }"
-	echo -e "${_//%/\\x}"
+  : "${*//+/ }"
+  echo -e "${_//%/\\x}"
+}
+
+containsElement () {
+  local e match="$1"
+  shift
+  for e; do [[ "$e" == "$match" ]] && return 0; done
+  return 1
 }
 
 do_login() {
-	saml2aws script &>/dev/null || saml2aws login --idp-account="default" --disable-keychain
-	if [ $? -ne 0 ]; then
-		echo "Username/password error, please try again."
-		echo "If needed, you may reset your credentials on https://sso.chartrequest.com"
-		exit 1
-	else
-		echo "Login successful, your temporary credentials have been stored"
-		echo "in the ~/.aws/credentials file"
-		CALLER=$(aws sts get-caller-identity)
-	fi
+  saml2aws script &>/dev/null || saml2aws login --idp-account="default" --disable-keychain
+  if [ $? -ne 0 ]; then
+    echo "Username/password error, please try again."
+    echo "If needed, you may reset your credentials on https://sso.chartrequest.com"
+    exit 1
+  else
+    echo "Login successful, your temporary credentials have been stored"
+    echo "in the ~/.aws/credentials file"
+    CALLER=$(aws sts get-caller-identity)
+  fi
 }
 
 check_requisites() {
-	if ! hash aws &>/dev/null; then
-		echo "This tool requires the aws cli command to run"
-		echo "To install it, follow the instructions at https://docs.aws.amazon.com/cli/latest/userguide/install-cliv1.html"
-		exit 1
-	fi
-	if ! hash session-manager-plugin &>/dev/null; then
-		echo "This tool requires the aws cli Session Manager Plugin"
-		echo "To install it, follow the instructions at https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html#install-plugin-verify"
-		exit 1
-	fi
-	if ! hash saml2aws &>/dev/null; then
-		echo "This tool requires the saml2aws script."
-		echo "To install it, follow the instructions at https://intranet.chartrequest.com/doku.php?id=development:howtoawskeys"
-		exit 1
-	fi
-	if ! hash ecs-cli &>/dev/null; then
-		echo "This tool requires the ecs-cli command."
-		echo "To install it, follow the instructions at https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ECS_CLI_installation.html"
-		exit 1
-	fi
-	if ! hash jq &>/dev/null; then
-		echo "This tool requires the jq command."
-		echo "Install the corresponding system package. On Ubuntu, run 'sudo apt update; sudo apt install jq'"
-		exit 1
-	fi
-	if ! hash psql &>/dev/null; then
-		echo "This tool requires the psql command."
-		echo "Install the corresponding system package. On Ubuntu, run 'sudo apt update; sudo apt install postgresql'"
-		exit 1
-	fi
+  if ! hash aws &>/dev/null; then
+    echo "This tool requires the aws cli command to run"
+    echo "To install it, follow the instructions at https://docs.aws.amazon.com/cli/latest/userguide/install-cliv1.html"
+    exit 1
+  fi
+  if ! hash session-manager-plugin &>/dev/null; then
+    echo "This tool requires the aws cli Session Manager Plugin"
+    echo "To install it, follow the instructions at https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html#install-plugin-verify"
+    exit 1
+  fi
+  if ! hash saml2aws &>/dev/null; then
+    echo "This tool requires the saml2aws script."
+    echo "To install it, follow the instructions at https://intranet.chartrequest.com/doku.php?id=development:howtoawskeys"
+    exit 1
+  fi
+  if ! hash ecs-cli &>/dev/null; then
+    echo "This tool requires the ecs-cli command."
+    echo "To install it, follow the instructions at https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ECS_CLI_installation.html"
+    exit 1
+  fi
+  if ! hash jq &>/dev/null; then
+    echo "This tool requires the jq command."
+    echo "Install the corresponding system package. On Ubuntu, run 'sudo apt update; sudo apt install jq'"
+    exit 1
+  fi
+  if ! hash psql &>/dev/null; then
+    echo "This tool requires the psql command."
+    echo "Install the corresponding system package. On Ubuntu, run 'sudo apt update; sudo apt install postgresql'"
+    exit 1
+  fi
 }
 
 check_login() {
-	CALLER=$(aws sts get-caller-identity) || do_login
+  CALLER=$(aws sts get-caller-identity) || do_login
 }
 
 get_container_instance_arn() {
-	aws ecs describe-tasks \
-		--cluster ${CLUSTER} \
-		--region ${REGION} \
-		--tasks $1 |
-	jq -r '.tasks[].containerInstanceArn' || exit 1
+  aws ecs describe-tasks \
+    --cluster ${CLUSTER} \
+    --region ${REGION} \
+    --tasks $1 |
+  jq -r '.tasks[].containerInstanceArn' || exit 1
 }
 
 get_ssm_instance_id() {
-	aws ecs describe-container-instances \
-		--region ${REGION} \
-		--cluster ${CLUSTER} \
-		--container-instances $1 |
-	jq -r '.containerInstances[].ec2InstanceId' || exit 1
+  aws ecs describe-container-instances \
+    --region ${REGION} \
+    --cluster ${CLUSTER} \
+    --container-instances $1 |
+  jq -r '.containerInstances[].ec2InstanceId' || exit 1
 }
 
 get_ssm_instance_address() {
-	aws ssm describe-instance-information \
-		--region ${REGION} \
-		--filters "Key=InstanceIds,Values=$1" | 
-	jq -r '.InstanceInformationList[].IPAddress' || exit 1
+  aws ssm describe-instance-information \
+    --region ${REGION} \
+    --filters "Key=InstanceIds,Values=$1" | 
+  jq -r '.InstanceInformationList[].IPAddress' || exit 1
 }
 
 get_caller_identity() {
-	echo $CALLER |jq -r '.Arn' || exit 1
+  echo $CALLER |jq -r '.Arn' || exit 1
 }
 
 start_ssh() {
-	#From a remote access point of view we can have two environment types
-	#EC2/FARGATE environments can be accessed with aws ecs execute-command
-	#External environments must be accessed with ssh + docker exec
-	#We can look at the environment's task definition to get the environment's type
+  #From a remote access point of view we can have two environment types
+  #EC2/FARGATE environments can be accessed with aws ecs execute-command
+  #External environments must be accessed with ssh + docker exec
+  #We can look at the environment's task definition to get the environment's type
 
-	local launch_type=$(echo $SERVICE| jq -r '.services[].launchType')
-	case "$launch_type" in
-		'EXTERNAL')
-			#Build the remote username based on the identity we assumed at login time
-			u="$(get_caller_identity | sed 's/\(.*\)\/\([^\/]*\)$/\2/')@ad.chartrequest.com"
-			# Get the container instance ARN
-			CONTAINERINSTANCE=$(get_container_instance_arn ${TASKID})
-			# Get the instance ID where the task is running
-			INSTANCEID=$(get_ssm_instance_id ${CONTAINERINSTANCE})
-			# Get the instance IP Address
-			INSTANCEADDRESS=$(get_ssm_instance_address ${INSTANCEID})
-			#Get the container name
-			CONTAINERID=$(
-				ssh -q -tt -l ${u} ${INSTANCEADDRESS} curl -s http://localhost:51678/v1/tasks | \
-				jq -r ".Tasks[] | \
-					select (.KnownStatus==\"RUNNING\") | \
-					select (.Arn==\"${TASKID}\" ) | \
-					.Containers[] | \
-					select (.Name==\"${CONTAINERNAME}\").DockerName" \
-			)
-			echo "Containers are running on ${INSTANCEADDRESS}. Logging in..."
-                        ssh -tt -l ${u} ${INSTANCEADDRESS} docker exec -ti ${CONTAINERID} /bin/bash
-		;;
-		'FARGATE'|'EC2')
-			aws ecs execute-command \
-				--cluster ${CLUSTER} \
-				--region ${REGION} \
-				--task ${TASKID} \
-				--container ${CONTAINERNAME} \
-				--interactive \
-				--command /bin/bash
-		;;
-	esac
+  if [ "${CONTAINERNAME}" = "" ]; then
+    echo "You must specify a container name with the '--container <container name>' option"
+    exit 1
+  fi
+
+  conts=( $(get_app_containers) )
+
+  if ! containsElement "${CONTAINERNAME}" "${conts[@]}"; then
+    echo "Container ${CONTAINERNAME} doesn't exist"
+    echo "Run 'cr-tool app:container --app <app name> --env <environment name> --service <service name>' to obtain a list of available containers"
+    exit 1
+  fi 
+
+  CLUSTER=$(get_app_cluster)
+  REGION=$(get_app_region)
+
+  SERVICE=$(aws ecs describe-services --region ${REGION} --cluster ${CLUSTER} --service ${SERVICENAME})
+
+  deployment_id=$(echo ${SERVICE} | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id')
+  TASKID=$(aws ecs list-tasks --cluster ${CLUSTER} \
+    --started-by ${deployment_id} \
+    --desired-status RUNNING \
+    --region ${REGION} | jq -r '.taskArns[]'| head -1)
+  #Short version of the TASKID
+  TID=$(echo ${TASKID}|cut -d"/" -f3)
+
+  local launch_type=$(echo $SERVICE| jq -r '.services[].launchType')
+
+  case "$launch_type" in
+    'EXTERNAL')
+      #Build the remote username based on the identity we assumed at login time
+      u="$(get_caller_identity | sed 's/\(.*\)\/\([^\/]*\)$/\2/')@ad.chartrequest.com"
+      # Get the container instance ARN
+      CONTAINERINSTANCE=$(get_container_instance_arn ${TASKID})
+      # Get the instance ID where the task is running
+      INSTANCEID=$(get_ssm_instance_id ${CONTAINERINSTANCE})
+      # Get the instance IP Address
+      INSTANCEADDRESS=$(get_ssm_instance_address ${INSTANCEID})
+      #Get the container name
+      CONTAINERID=$(
+  ssh -q -tt -l ${u} ${INSTANCEADDRESS} curl -s http://localhost:51678/v1/tasks | \
+  jq -r --arg CONTAINERNAME ${CONTAINERNAME} --arg TASKID ${TASKID} '.Tasks[] | 
+    select (.KnownStatus == "RUNNING") | 
+    select (.Arn == $TASKID ) | 
+    .Containers[] | 
+    select (.Name == $CONTAINERNAME).DockerName' \
+      )
+      echo "Containers are running on ${INSTANCEADDRESS}. Logging in..."
+      ssh -tt -l ${u} ${INSTANCEADDRESS} docker exec -ti ${CONTAINERID} /bin/bash
+    ;;
+    'FARGATE'|'EC2')
+      aws ecs execute-command \
+  --cluster ${CLUSTER} \
+  --region ${REGION} \
+  --task ${TASKID} \
+  --container ${CONTAINERNAME} \
+  --interactive \
+  --command /bin/bash
+    ;;
+  esac
 }
 
 show_logs() {
-	ecs-cli logs --region ${REGION} --cluster ${CLUSTER} --task-id ${TID} --container-name ${CONTAINERNAME} ${FOLLOW}
+  ecs-cli logs --region ${REGION} --cluster ${CLUSTER} --task-id ${TID} --container-name ${CONTAINERNAME} ${FOLLOW}
 }
 
 get_config() {
-	aws s3 cp s3://${CONFIG_FILE} ${1} >/dev/null
-	if [ $? -ne 0 ]; then
-		echo "Cannot read the configuration file, perhaps you don't have the required permissions"
-		exit 1
-	fi
+  aws s3 cp s3://${CONFIG_FILE} ${1} >/dev/null
+  if [ $? -ne 0 ]; then
+    echo "Cannot read the configuration file, perhaps you don't have the required permissions"
+    exit 1
+  fi
 }
 
 set_config() {
-	local configfile=${1}
-	shift 2
-	while true; do
-		[[ ${1} =~ ^([-_a-zA-Z0-9]*)=(.*)$ ]] && set_option ${configfile} ${BASH_REMATCH[1]} ${BASH_REMATCH[2]}
-		shift 1 || break
-	done
-	aws s3 cp ${configfile} s3://${CONFIG_FILE} >/dev/null
-	if [ $? -ne 0 ]; then
-		echo "Cannot write the configuration file, perhaps you don't have the required permissions"
-		exit 1
-	fi
+  local configfile=${1}
+  shift 2
+  while true; do
+    [[ ${1} =~ ^([-_a-zA-Z0-9]*)=(.*)$ ]] && set_option ${configfile} ${BASH_REMATCH[1]} ${BASH_REMATCH[2]}
+    shift 1 || break
+  done
+  aws s3 cp ${configfile} s3://${CONFIG_FILE} >/dev/null
+  if [ $? -ne 0 ]; then
+    echo "Cannot write the configuration file, perhaps you don't have the required permissions"
+    exit 1
+  fi
 }
 
 set_option() {
-	local configfile=${1}
-	local variable=${2}
-	local value=${3}
-	if $(grep -q ${variable} ${configfile}); then
-		#The file contains the variable
-		if [ "x${value}x" != "xx" ]; then
-			#The variable is not empty, so we update it
-			escaped_value=$(echo ${value}|sed 's@/@\\/@g')
-			sed -i 's/\('${variable}'\)=\(.*\)/\1='${escaped_value}'/' ${configfile}
-		else
-			#we delete the variable as it is empty
-			sed -i '/^'${variable}'/d' ${configfile}
-		fi
-	else
-		#The file doesn't contain the variable so we add it
-		echo ${variable}=${value} >> ${configfile}
-	fi
+  local configfile=${1}
+  local variable=${2}
+  local value=${3}
+  if $(grep -q ${variable} ${configfile}); then
+    #The file contains the variable
+    if [ "x${value}x" != "xx" ]; then
+      #The variable is not empty, so we update it
+      escaped_value=$(echo ${value}|sed 's@/@\\/@g')
+      sed -i 's/\('${variable}'\)=\(.*\)/\1='${escaped_value}'/' ${configfile}
+    else
+      #we delete the variable as it is empty
+      sed -i '/^'${variable}'/d' ${configfile}
+    fi
+  else
+    #The file doesn't contain the variable so we add it
+    echo ${variable}=${value} >> ${configfile}
+  fi
 }
 
 connect_db() {
-	re="^postgresq?l?://([^:]*)(:[^@]*@)([a-zA-Z0-9%\._\-]*)(:?[0-9]*)(/[a-zA-Z0-9_\-]*)\??(.*)$"
-	[[ ${1} =~ ${re} ]]
-	if [ $? -eq 0 ]; then
-		export PGUSER=${BASH_REMATCH[1]}
-		export PGPASSWORD=$(echo ${BASH_REMATCH[2]} | sed -e 's/^://' -e 's/@$//')
-		export PGHOST=$(urldecode ${BASH_REMATCH[3]})
-		export PGPORT=${BASH_REMATCH[4]#:}
-		export PGDATABASE=${BASH_REMATCH[5]#/}
-		psql
-	fi
+  re="^postgresq?l?://([^:]*)(:[^@]*@)([a-zA-Z0-9%\._\-]*)(:?[0-9]*)(/[a-zA-Z0-9_\-]*)\??(.*)$"
+  [[ ${1} =~ ${re} ]]
+  if [ $? -eq 0 ]; then
+    export PGUSER=${BASH_REMATCH[1]}
+    export PGPASSWORD=$(echo ${BASH_REMATCH[2]} | sed -e 's/^://' -e 's/@$//')
+    export PGHOST=$(urldecode ${BASH_REMATCH[3]})
+    export PGPORT=${BASH_REMATCH[4]#:}
+    export PGDATABASE=${BASH_REMATCH[5]#/}
+    psql
+  fi
 }
 
 app_restart() {
-	index=0
-	while true; do
-		app_service=${services[$index]}
-		if [ -z "${app_service}" ]; then break; fi
-		service_name=$(echo ${app_service} | jq -r ".services[].serviceName")
-		aws ecs update-service --region ${REGION} --cluster ${CLUSTER} --service ${service_name} --force-new-deployment >/dev/null
-		echo "Restarting service ${service_name}, we will wait up to 20 minutes for it to succeed"
-		timeout 1200 aws ecs wait services-stable --region ${REGION} --cluster ${CLUSTER} --service ${service_name}
-		if [ $? -ne 0 ]; then
-			echo "Deployment failed! Logs are shown below:"
-			failed_deployment_id=$(aws ecs describe-services --services ${service_name} --cluster ${CLUSTER} --region ${REGION} | \
-				jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id'
-			)
-	 		failed_task_id=$(aws ecs list-tasks --cluster ${CLUSTER} --started-by ${failed_deployment_id} --region ${REGION} | \
-				jq -r '.taskArns[]' | cut -d"/" -f3
-			)
-	 		ecs-cli logs --task-id ${failed_task_id} --cluster ${CLUSTER} --region ${REGION}
-		fi
-		((index+=1))
-	done
+  index=0
+  while true; do
+    app_service=${services[$index]}
+    if [ -z "${app_service}" ]; then break; fi
+    service_name=$(echo ${app_service} | jq -r ".services[].serviceName")
+    aws ecs update-service --region ${REGION} --cluster ${CLUSTER} --service ${service_name} --force-new-deployment >/dev/null
+    echo "Restarting service ${service_name}, we will wait up to 20 minutes for it to succeed"
+    timeout 1200 aws ecs wait services-stable --region ${REGION} --cluster ${CLUSTER} --service ${service_name}
+    if [ $? -ne 0 ]; then
+      echo "Deployment failed! Logs are shown below:"
+      failed_deployment_id=$(aws ecs describe-services --services ${service_name} --cluster ${CLUSTER} --region ${REGION} | \
+  jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id'
+      )
+       failed_task_id=$(aws ecs list-tasks --cluster ${CLUSTER} --started-by ${failed_deployment_id} --region ${REGION} | \
+  jq -r '.taskArns[]' | cut -d"/" -f3
+      )
+       ecs-cli logs --task-id ${failed_task_id} --cluster ${CLUSTER} --region ${REGION}
+    fi
+    ((index+=1))
+  done
 
 }
 
 set_environment() {
-	local service_arn deployment_id index task_def_arn servicename
-	declare -a cluster_service_arns
-	declare -a -g services
+  local service_arn deployment_id index task_def_arn servicename servs s
+  declare -a cluster_service_arns
+  declare -a -g services
 
-	case "${ENVIRONMENT}" in
-		'preproduction')
-			CLUSTER=preprod
-		;;
-		staging|testing)
-			CLUSTER=cr-do-bangalore
-		;;
-		*)
-			CLUSTER=cr-${ENVIRONMENT}
-		;;
-	esac
+  CLUSTER=$(get_app_cluster)
+  REGION=$(get_app_region)
+  servs=( $(get_app_services) )
 
-	cluster_service_arns=($(aws ecs list-services --cluster ${CLUSTER} --region ${REGION} 2>/dev/null| jq -r '.serviceArns[]'))
-	if [ -z "${cluster_service_arns[0]}" ]; then 
-		echo "Cluster ${CLUSTER} has no running services or you don't have permission to access them"
-		exit 1
-	fi
+  for s in "${servs[@]}"; do
+    cluster_service_arns+=($(aws ecs describe-service --cluster ${CLUSTER} --region ${REGION} --service ${s} 2>/dev/null| jq -r '.serviceArns[]'))
+    services+=("$(aws ecs describe-services --services ${s} --cluster ${CLUSTER} --region ${REGION})")
+  done
 
-	for i in "${cluster_service_arns[@]}"; do
-		services+=("$(aws ecs describe-services --services ${i} --cluster ${CLUSTER} --region ${REGION})")
-	done
-	
-	if [ ${ENVIRONMENT} = 'preproduction' -o ${ENVIRONMENT} = 'production' ]; then
-		FAMILY="-${CONTAINER}"
-	fi
-	case "${CONTAINER}" in
-		'web')
-			if [ ${ENVIRONMENT} = 'preproduction' -o ${ENVIRONMENT} = 'production' ]; then
-				CONTAINERNAME=web
-			else
-				CONTAINERNAME=WebWorker
-			fi
-		;;
-		'cron')
-			CONTAINERNAME=CronWorker
-		;;
-		'sidekiq')
-			CONTAINERNAME=SidekiqWorker
-		;;
-		*)
-			echo "You must set web,cron or sidekiq as container family! Exiting..."
-			exit 1
-		;;
-	esac
-	
-	#Get the task id corresponding to the desired container
-	if [ ${CONTAINERNAME} = "web" ]; then
-		servicename=WebWorker
-	else
-		servicename=${CONTAINERNAME}
-	fi
-
-	index=0
-	if [ -n "${services[1]}" ]; then
-		#more than one service, they are named after their container
-		while true; do
-			if [ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "cr-${ENVIRONMENT}" ]; then
-				#We leave in the services[] array only the required service
-				temp=${services[$index]}
-				services=()
-				services[0]=${temp}
-				index=0
-				break
-			fi
-			[ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "${servicename}" ] && break
-			((index+=1))
-		done
-	fi
-	SERVICE=${services[$index]}
-	deployment_id=$(echo ${SERVICE} | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id')
-	TASKID=$(aws ecs list-tasks --cluster ${CLUSTER} \
-		--started-by ${deployment_id} \
-		--desired-status RUNNING \
-		--region ${REGION} | jq -r '.taskArns[]'| head -1)
-	#Short version of the TASKID
-	TID=$(echo ${TASKID}|cut -d"/" -f3)
-	task_def_arn=$(echo ${SERVICE} | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .taskDefinition')
-	TASKDEF=$(aws ecs describe-task-definition --task-definition ${task_def_arn} --region ${REGION})
-	CONFIG_FILE=$(echo ${TASKDEF} |
-		jq -r ".taskDefinition.containerDefinitions[]| select(.name==\"${CONTAINERNAME}\") | .environmentFiles[].value" |
-		cut -d":" -f6)
+  index=0
+  if [ -n "${services[1]}" ]; then
+    #more than one service, they are named after their container
+    while true; do
+      if [ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "cr-${ENVIRONMENT}" ]; then
+  #We leave in the services[] array only the required service
+  temp=${services[$index]}
+  services=()
+  services[0]=${temp}
+  index=0
+  break
+      fi
+      [ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "${servicename}" ] && break
+      ((index+=1))
+    done
+  fi
+  SERVICE=${services[$index]}
+  deployment_id=$(echo ${SERVICE} | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .id')
+  TASKID=$(aws ecs list-tasks --cluster ${CLUSTER} \
+    --started-by ${deployment_id} \
+    --desired-status RUNNING \
+    --region ${REGION} | jq -r '.taskArns[]'| head -1)
+  #Short version of the TASKID
+  TID=$(echo ${TASKID}|cut -d"/" -f3)
+  task_def_arn=$(echo ${SERVICE} | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .taskDefinition')
+  TASKDEF=$(aws ecs describe-task-definition --task-definition ${task_def_arn} --region ${REGION})
+  CONFIG_FILE=$(echo ${TASKDEF} |
+    jq -r ".taskDefinition.containerDefinitions[]| select(.name==\"${CONTAINERNAME}\") | .environmentFiles[].value" |
+    cut -d":" -f6)
 }
 
+get_ecs_config() {
+  if [ -r ${ecs_config_file} ]; then
+    current=$(date +%s)
+    last_modified=$(stat -c "%X" ${ecs_config_file})
+    if [ $((current - last_modified)) -gt 86400 ]; then
+      #File is older than 12 hours
+      aws s3 cp --quiet s3://cr-configuration-files/app-descriptors/cr-configuration.json ${ecs_config_file} || no_permission
+    fi
+  else
+    mkdir -p ~/.cr-tool
+    aws s3 cp --quiet s3://cr-configuration-files/app-descriptors/cr-configuration.json ${ecs_config_file} || no_permission
+  fi
+  ecs_config=$(<${ecs_config_file})
+
+  #Check what's our "home" aws account, the one were Jenkins is running
+  homeaccount=$(jq -r \
+    '.accounts[] |
+     select(.ishome == "yes") |
+     .id' <<< ${ecs_config})
+}
+
+get_app_list() {
+  jq -r '.apps[] | .name' <<< ${ecs_config}
+}
+
+get_app_environments() {
+  if [ "${APP}" = "" ]; then
+    echo "You must specify an app name with the '--app <app name>' option"
+    exit 1
+  fi
+
+  apps=( $(get_app_list) )
+
+  if ! containsElement "${APP}" "${apps[@]}"; then
+    echo "App ${APP} doesn't exist"
+    echo "Run 'cr-tool app:list' to obtain a list of available apps"
+    exit 1
+  fi 
+
+  jq -r --arg APPNAME ${APP} '.apps[] |
+    select( .name == $APPNAME ) |
+    .environments[] |
+    .name' <<< ${ecs_config}
+}
+
+get_app_cluster() {
+  if [ "${ENVIRONMENT}" = "" ]; then
+    echo "You must specify an environment name with the '--env <environment name>' option"
+    exit 1
+  fi
+
+  envs=( $(get_app_environments) )
+
+  if ! containsElement "${ENVIRONMENT}" "${envs[@]}"; then
+    echo "Environment ${ENVIRONMENT} doesn't exist"
+    echo "Run 'cr-tool app:environments --app <app name>' to obtain a list of available environments"
+    exit 1
+  fi 
+
+  jq -r --arg APPNAME ${APP} --arg ENVNAME ${ENVIRONMENT} '
+    .apps[] | select( .name == $APPNAME ) |
+    .environments[] | select( .name == $ENVNAME ) |
+    .cluster' <<< ${ecs_config}
+}
+
+get_app_region() {
+  CLUSTER=( $(get_app_cluster) )
+
+  jq -r --arg CLUSTERNAME ${CLUSTER} '
+    .clusters[] | select( .name == $CLUSTERNAME ) |
+    .region' <<< ${ecs_config}
+}
+
+get_app_services() {
+  if [ "${ENVIRONMENT}" = "" ]; then
+    echo "You must specify an environment name with the '--env <environment name>' option"
+    exit 1
+  fi
+
+  envs=( $(get_app_environments) )
+
+  if ! containsElement "${ENVIRONMENT}" "${envs[@]}"; then
+    echo "Environment ${ENVIRONMENT} doesn't exist"
+    echo "Run 'cr-tool app:environments --app <app name>' to obtain a list of available environments"
+    exit 1
+  fi 
+
+  jq -r --arg APPNAME ${APP} --arg ENVNAME ${ENVIRONMENT} '
+    .apps[] | select( .name == $APPNAME ) |
+    .environments[] | select( .name == $ENVNAME ) |
+    .services[]' <<< ${ecs_config}
+}
+
+get_app_containers() {
+  local tdef
+
+  if [ "${SERVICENAME}" = "" ]; then
+    echo "You must specify a service name with the '--service <service name>' option"
+    exit 1
+  fi
+
+  servs=( $(get_app_services) )
+
+  if ! containsElement "${SERVICENAME}" "${servs[@]}"; then
+    echo "Service ${SERVICENAME} doesn't exist"
+    echo "Run 'cr-tool app:services --app <app name> --env <environment name>' to obtain a list of available services"
+    exit 1
+  fi 
+
+  REGION=$(get_app_region)
+  CLUSTER=$(get_app_cluster)
+
+  tdef=$(
+    aws ecs describe-services --region ${REGION} --cluster ${CLUSTER} --service ${SERVICENAME} |
+      jq -r '.services[] | .taskDefinition'
+  )
+
+  aws ecs describe-task-definition --task-definition ${tdef} --region ${REGION} |
+    jq -r '.taskDefinition | .containerDefinitions[] | .name'  
+}
+
+no_permission() {
+  echo "You don't have permission to access a required AWS resource, please contact it@chartrequest.com"
+  exit 1
+}
 
 #First check if all the required utilities are present
 check_requisites
@@ -335,111 +460,150 @@ check_requisites
 eval $(saml2aws script) &>/dev/null
 
 #Parse command line options
-TEMP=$(getopt -o 'e:c:hfv' --long 'environment:,container:,help,follow,version' -n '5ocr-tool' -- "$@")
+TEMP=$(getopt -o 'a:e:s:c:hfv' --long 'app:,env:,service:,container:,help,follow,version' -n 'cr-tool' -- "$@")
 
 if [ $? -ne 0 ]; then
-	echo 'Terminating...' >&2
-	exit 1
+  echo 'Terminating...' >&2
+  exit 1
 fi
 
 eval set -- "$TEMP"
 unset TEMP
 
 while true; do
-	case "$1" in
-		'-e'|'--environment')
-			ENVIRONMENT=$2
-			shift 2
-			continue
-		;;
-		'-c'|'--container')
-			CONTAINER=$2
-			shift 2
-			continue
-		;;
-		'-f'|'--follow')
-			shift 1
-			FOLLOW="--follow"
-			continue
-		;;
-		'-h'|'--help')
-			shift 1
-			usage
-			exit 0
-		;;
-		'-v'|'--version')
-			shift 1
-			version
-			exit 0
-		;;
-		'--')
-			shift
-			break
-		;;
-		*)
-			usage
-			exit 0
-		;;
-	esac
+  case "$1" in
+    '-a'|'--app')
+      APP=$2
+      shift 2
+      continue
+    ;;
+    '-e'|'--env')
+      ENVIRONMENT=$2
+      shift 2
+      continue
+    ;;
+    '-s'|'--service')
+      SERVICENAME=$2
+      shift 2
+      continue
+    ;;
+    '-c'|'--container')
+      CONTAINERNAME=$2
+      shift 2
+      continue
+    ;;
+    '-f'|'--follow')
+      shift 1
+      FOLLOW="--follow"
+      continue
+    ;;
+    '-h'|'--help')
+      shift 1
+      usage
+      exit 0
+    ;;
+    '-v'|'--version')
+      shift 1
+      version
+      exit 0
+    ;;
+    '--')
+      shift
+      break
+    ;;
+    *)
+      usage
+      exit 0
+    ;;
+  esac
 done
-
-#Set some sane defaults
-if [ ${ENVIRONMENT} = 'production' ]; then
-	REGION=us-east-1
-else
-	REGION=us-east-2
-fi
-CONTAINER=web
 
 #Parse the main command
 case "$1" in
-	'login')
-		do_login
-	;;
-	'ssh')
-		check_login
-		set_environment
-		start_ssh
-	;;
-	'logs')
-		check_login
-		set_environment
-		show_logs
-	;;
-	'config')
-		check_login
-		set_environment
-		tmpfile=$(mktemp)
-		get_config ${tmpfile}
-		cat ${tmpfile}
-		rm -f ${tmpfile}
-	;;
-	'config:set')
-		check_login
-		set_environment
-		tmpfile=$(mktemp)
-		get_config ${tmpfile}
-		set_config ${tmpfile} "$@"
-		rm -f ${tmpfile}
-		app_restart
-	;;
-	'db:connect')
-		check_login
-		set_environment
-		tmpfile=$(mktemp)
-		get_config ${tmpfile}
-		eval $(grep DATABASE_URL ${tmpfile})
-		rm -f ${tmpfile}
-		connect_db ${DATABASE_URL}
-	;;
-	'restart')
-		check_login
-		set_environment
-		app_restart
-	;;
-	*)
-		usage
-		exit 1
-	;;
+  'login')
+    do_login
+    get_ecs_config
+  ;;
+  'app:list')
+    check_login
+    get_ecs_config
+    get_app_list
+  ;;
+  'app:environments'|'app:env'|'app:envs')
+    check_login
+    get_ecs_config
+    get_app_environments
+  ;;
+  'app:cluster')
+    check_login
+    get_ecs_config
+    get_app_cluster
+  ;;
+  'app:region')
+    check_login
+    get_ecs_config
+    get_app_region
+  ;;
+  'app:services')
+    check_login
+    get_ecs_config
+    get_app_services
+  ;;
+  'app:containers')
+    check_login
+    get_ecs_config
+    get_app_containers
+  ;;
+  'ssh')
+    check_login
+    get_ecs_config
+    #set_environment
+    start_ssh
+  ;;
+  'logs')
+    check_login
+    get_ecs_config
+    set_environment
+    show_logs
+  ;;
+  'config')
+    check_login
+    get_ecs_config
+    set_environment
+    tmpfile=$(mktemp)
+    get_config ${tmpfile}
+    cat ${tmpfile}
+    rm -f ${tmpfile}
+  ;;
+  'config:set')
+    check_login
+    get_ecs_config
+    set_environment
+    tmpfile=$(mktemp)
+    get_config ${tmpfile}
+    set_config ${tmpfile} "$@"
+    rm -f ${tmpfile}
+    app_restart
+  ;;
+  'db:connect')
+    check_login
+    get_ecs_config
+    set_environment
+    tmpfile=$(mktemp)
+    get_config ${tmpfile}
+    eval $(grep DATABASE_URL ${tmpfile})
+    rm -f ${tmpfile}
+    connect_db ${DATABASE_URL}
+  ;;
+  'restart')
+    check_login
+    get_ecs_config
+    set_environment
+    app_restart
+  ;;
+  *)
+    usage
+    exit 1
+  ;;
 esac
 
