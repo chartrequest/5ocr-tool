@@ -176,9 +176,7 @@ start_ssh() {
 }
 
 show_logs() {
-  CLUSTER=$(get_app_cluster)
-  REGION=$(get_app_region)
-
+  set_environment
   ecs-cli logs --region ${REGION} --cluster ${CLUSTER} --task-id ${TID} --container-name ${CONTAINERNAME} ${FOLLOW}
 }
 
@@ -272,25 +270,31 @@ set_environment() {
   servs=( $(get_app_services) )
 
   if [ ${#servs[@]} -gt 1 -a "${SERVICENAME}" = "" ]; then
-    echo "This app has more than one available service"
+    echo -e "This app has more than one available service\n"
+    echo -e "You must specify a service name with the '--service <service name>' option\n"
     echo "Available services are"
     echo ${servs[@]}
-    echo "You must specify a service name with the '--service <service name>' option"
     exit 1
-  else
+  elif [ "${SERVICENAME}" = "" ]; then
     SERVICENAME=${servs[0]}
   fi
+
+  if ! containsElement "${SERVICENAME}" "${servs[@]}"; then
+    echo "Service ${SERVICENAME} doesn't exist"
+    echo "Run 'cr-tool app:services --app <app name> --env <environment name>' to obtain a list of available services"
+    exit 1
+  fi 
 
   conts=( $(get_app_containers) )
 
   if [ ${#conts[@]} -gt 1 -a "${CONTAINERNAME}" = "" ]; then
-    echo "This app has more than one available container"
+    echo -e "This service has more than one available container\n"
+    echo -e "You must specify a container name with the '--container <container name>' option\n"
     echo "Available containers are:"
     echo ${conts[@]}
-    echo "You must specify a container name with the '--container <container name>' option"
     exit 1
-  #else
-  #  CONTAINERNAME=${conts[0]}
+  elif [ "${CONTAINERNAME}" = "" ]; then
+    CONTAINERNAME=${conts[0]}
   fi
 
   if ! containsElement "${CONTAINERNAME}" "${conts[@]}"; then
@@ -319,7 +323,7 @@ set_environment() {
   task_def_arn=$(echo ${SERVICE} | jq -r '.services[].deployments[] | select(.status=="PRIMARY") | .taskDefinition')
   TASKDEF=$(aws ecs describe-task-definition --task-definition ${task_def_arn} --region ${REGION})
   CONFIG_FILE=$(echo ${TASKDEF} |
-    jq -r --args CONTAINERNAME ${CONTAINERNAME} '
+    jq -r --arg CONTAINERNAME ${CONTAINERNAME} '
       .taskDefinition.containerDefinitions[]| select( .name == $CONTAINERNAME ) | 
       .environmentFiles[].value' |
     cut -d":" -f6)
@@ -424,12 +428,12 @@ get_app_containers() {
   servs=( $(get_app_services) )
 
   if [ ${#servs[@]} -gt 1 -a "${SERVICENAME}" = "" ]; then
-    echo "This app has more than one available service"
+    echo -e "This app has more than one available service\n"
+    echo -e "You must specify a service name with the '--service <service name>' option\n"
     echo "Available services are"
     echo ${servs[@]}
-    echo "You must specify a service name with the '--service <service name>' option"
     exit 1
-  else
+  elif [ "${SERVICENAME}" = "" ]; then
     SERVICENAME=${servs[0]}
   fi
 
@@ -560,13 +564,11 @@ case "$1" in
   'ssh')
     check_login
     get_ecs_config
-    #set_environment
     start_ssh
   ;;
   'logs')
     check_login
     get_ecs_config
-    set_environment
     show_logs
   ;;
   'config')
