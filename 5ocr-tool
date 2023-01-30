@@ -248,7 +248,7 @@ set_environment() {
 		'preproduction')
 			CLUSTER=preprod
 		;;
-		staging|testing)
+		staging2|testing2)
 			CLUSTER=cr-do-bangalore
 		;;
 		*)
