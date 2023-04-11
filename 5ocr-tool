@@ -248,12 +248,12 @@ set_environment() {
 		'preproduction')
 			CLUSTER=preprod
 		;;
-		staging|testing)
+		staging2|testing2|staging|testing)
 		
 			CLUSTER=cr-do-bangalore
 		;;
 		*)
-			CLUSTER=cr-${ENVIRONMENT}
+			CLUSTER=cr-${ENVIRONMENT}2
 		;;
 	esac
 
@@ -303,7 +303,7 @@ set_environment() {
 	if [ -n "${services[1]}" ]; then
 		#more than one service, they are named after their container
 		while true; do
-			if [ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "cr-${ENVIRONMENT}" ]; then
+			if [ "$(echo ${services[$index]} | jq -r '.services[].serviceName')" = "cr-${ENVIRONMENT}2" ]; then
 				#We leave in the services[] array only the required service
 				temp=${services[$index]}
 				services=()
